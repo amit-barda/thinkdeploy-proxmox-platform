@@ -690,9 +690,6 @@ configure_compute() {
             
             as_config="{\"group\":\"$as_group\",\"min\":$min_vms,\"max\":$max_vms,\"scale_up\":$scale_up,\"scale_down\":$scale_down}"
             log "Auto-scaling configured: $as_group" 1>&2
-            # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\",\"location\":\"setup.sh:691\",\"message\":\"Autoscaling config collected\",\"data\":{\"as_group\":\"$as_group\",\"min_vms\":$min_vms,\"max_vms\":$max_vms,\"scale_up\":$scale_up,\"scale_down\":$scale_down,\"as_config\":\"$as_config\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-            # #endregion
             echo "autoscaling:$as_config"
             ;;
         7)
@@ -1156,17 +1153,11 @@ while true; do
                     fi
                 elif [[ "$result" == *"hotplug:"* ]] || [[ "$result" == *"autoscaling:"* ]] || [[ "$result" == *"tags:"* ]]; then
                     # Special compute operations (not VM/LXC resources)
-                    # #region agent log
-                    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\",\"location\":\"setup.sh:1154\",\"message\":\"Autoscaling config added to cluster_configs\",\"data\":{\"result\":\"${result:0:200}\",\"cluster_configs_before\":\"${cluster_configs:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-                    # #endregion
                     if [ -z "$cluster_configs" ]; then
                         cluster_configs="$result"
                     else
                         cluster_configs="$cluster_configs,$result"
                     fi
-                    # #region agent log
-                    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\",\"location\":\"setup.sh:1160\",\"message\":\"cluster_configs after adding autoscaling\",\"data\":{\"cluster_configs_after\":\"${cluster_configs:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-                    # #endregion
                 elif [[ "$result" == *"\"rootfs\""* ]]; then
                     # LXC container (has rootfs field, no disk/network)
                     if [ -z "$lxcs" ]; then
@@ -1576,9 +1567,6 @@ if [ -n "$cluster_configs" ]; then
     AUTOSCALING_JSON=""  # Initialize autoscaling JSON (will be set if autoscaling config is found)
     temp_configs="$cluster_configs"
     log "Starting cluster parsing loop with temp_configs: $temp_configs" 1>&2
-    # #region agent log
-    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"P\",\"location\":\"setup.sh:1570\",\"message\":\"Entering cluster_configs parsing\",\"data\":{\"cluster_configs_length\":${#cluster_configs},\"cluster_configs\":\"${cluster_configs:0:200}\",\"temp_configs\":\"${temp_configs:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-    # #endregion
     
     # Match patterns like "key:{...}" where {...} can contain commas and nested braces
     # Handle multiple entries separated by commas
@@ -1592,18 +1580,11 @@ if [ -n "$cluster_configs" ]; then
         # Trim leading whitespace and commas
         temp_configs=$(echo "$temp_configs" | sed 's/^[[:space:],]*//')
         
-        # #region agent log
-        echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"P\",\"location\":\"setup.sh:1576\",\"message\":\"Cluster parsing loop iteration\",\"data\":{\"loop_count\":$LOOP_COUNT,\"temp_configs_length\":${#temp_configs},\"temp_configs_preview\":\"${temp_configs:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-        # #endregion
-        
         # Check if we're stuck (same length as before)
         CURRENT_LENGTH=${#temp_configs}
         if [ $CURRENT_LENGTH -eq $PREV_LENGTH ] && [ $CURRENT_LENGTH -gt 0 ]; then
             warning "Cluster parsing loop detected - breaking to prevent infinite loop"
             log "Remaining unparsed config: $temp_configs" 1>&2
-            # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"P\",\"location\":\"setup.sh:1585\",\"message\":\"Parsing loop stuck, breaking\",\"data\":{\"temp_configs\":\"${temp_configs:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-            # #endregion
             break
         fi
         PREV_LENGTH=$CURRENT_LENGTH
@@ -1611,9 +1592,6 @@ if [ -n "$cluster_configs" ]; then
         if [[ "$temp_configs" =~ ^([^:]+):(.+)$ ]]; then
             KEY="${BASH_REMATCH[1]}"
             REST="${BASH_REMATCH[2]}"
-            # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"P\",\"location\":\"setup.sh:1591\",\"message\":\"Pattern matched\",\"data\":{\"key\":\"$KEY\",\"rest_preview\":\"${REST:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-            # #endregion
             
             if [[ "$REST" =~ ^\{ ]]; then
                 DEPTH=0
@@ -1639,9 +1617,6 @@ if [ -n "$cluster_configs" ]; then
                 # Parse the value and map to Terraform variable structure
                 if echo "$VALUE" | jq . > /dev/null 2>&1; then
                     log "Parsing cluster config: KEY=$KEY, VALUE=$VALUE" 1>&2
-                    # #region agent log
-                    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"C\",\"location\":\"setup.sh:1617\",\"message\":\"Parsing cluster config key\",\"data\":{\"key\":\"$KEY\",\"value_preview\":\"${VALUE:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-                    # #endregion
                     case "$KEY" in
                         cluster_create)
                             # Only process if create_cluster is not already set to true
@@ -1707,9 +1682,6 @@ if [ -n "$cluster_configs" ]; then
                             AS_MAX=$(echo "$VALUE" | jq -r '.max // 10' 2>/dev/null)
                             AS_SCALE_UP=$(echo "$VALUE" | jq -r '.scale_up // 80' 2>/dev/null)
                             AS_SCALE_DOWN=$(echo "$VALUE" | jq -r '.scale_down // 30' 2>/dev/null)
-                            # #region agent log
-                            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\",\"location\":\"setup.sh:1689\",\"message\":\"Autoscaling key detected and processing\",\"data\":{\"key\":\"$KEY\",\"as_group\":\"$AS_GROUP\",\"as_min\":$AS_MIN,\"as_max\":$AS_MAX,\"as_scale_up\":$AS_SCALE_UP,\"as_scale_down\":$AS_SCALE_DOWN},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-                            # #endregion
                             if [ -n "$AS_GROUP" ]; then
                                 # Build autoscaling JSON
                                 AUTOSCALING_JSON=$(jq -n \
@@ -1727,9 +1699,6 @@ if [ -n "$cluster_configs" ]; then
                                     }' 2>/dev/null)
                                 if [ $? -eq 0 ] && [ -n "$AUTOSCALING_JSON" ]; then
                                     log "Processed autoscaling config: group=$AS_GROUP, min=$AS_MIN, max=$AS_MAX, scale_up=$AS_SCALE_UP, scale_down=$AS_SCALE_DOWN"
-                                    # #region agent log
-                                    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\",\"location\":\"setup.sh:1705\",\"message\":\"Autoscaling JSON created\",\"data\":{\"autoscaling_json\":\"$AUTOSCALING_JSON\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-                                    # #endregion
                                 else
                                     warning "Failed to build autoscaling JSON"
                                 fi
@@ -1739,9 +1708,6 @@ if [ -n "$cluster_configs" ]; then
                             ;;
                         *)
                             log "WARNING: Unknown cluster config key: $KEY" 1>&2
-                            # #region agent log
-                            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"E\",\"location\":\"setup.sh:1683\",\"message\":\"Unknown cluster config key\",\"data\":{\"key\":\"$KEY\",\"value_preview\":\"${VALUE:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-                            # #endregion
                             ;;
                     esac
                 else
@@ -1755,9 +1721,6 @@ if [ -n "$cluster_configs" ]; then
             fi
         else
             # No pattern match, break
-            # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"P\",\"location\":\"setup.sh:1711\",\"message\":\"No pattern match, breaking\",\"data\":{\"temp_configs_preview\":\"${temp_configs:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-            # #endregion
             break
         fi
     done
@@ -1809,9 +1772,6 @@ fi
 # build_tfvars_file() calls it when Deploy All is selected
 run_terraform_deploy() {
     local tfvars_file="$1"
-    # #region agent log
-    echo "{\"sessionId\":\"debug-session\",\"runId\":\"post-fix\",\"hypothesisId\":\"A\",\"location\":\"setup.sh:1637\",\"message\":\"run_terraform_deploy entry\",\"data\":{\"tfvars_file\":\"$tfvars_file\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-    # #endregion
     
     # Use REPO_ROOT as TF_ROOT (already set at script start)
     local TF_ROOT="$REPO_ROOT"
@@ -1819,9 +1779,6 @@ run_terraform_deploy() {
     # Ensure GENERATED_DIR exists for plan file
     mkdir -p "$GENERATED_DIR" || error_exit "Failed to create generated directory: $GENERATED_DIR"
     local PLAN_FILE="$GENERATED_DIR/thinkdeploy.plan"
-    # #region agent log
-    echo "{\"sessionId\":\"debug-session\",\"runId\":\"post-fix\",\"hypothesisId\":\"A\",\"location\":\"setup.sh:1645\",\"message\":\"Terraform paths set\",\"data\":{\"TF_ROOT\":\"$TF_ROOT\",\"PLAN_FILE\":\"$PLAN_FILE\",\"tfvars_file\":\"$tfvars_file\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-    # #endregion
     
     # Convert tfvars_file to absolute path if relative
     if [[ "$tfvars_file" != /* ]]; then
@@ -1879,10 +1836,6 @@ run_terraform_deploy() {
             local tfvars_vm_list
             tfvars_vm_list=$(jq -r '.vms // {} | keys[]' "$tfvars_file" 2>/dev/null || echo "")
             
-            # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"G\",\"location\":\"setup.sh:1704\",\"message\":\"Safety guard VM comparison\",\"data\":{\"state_vm_list\":\"$state_vm_list\",\"tfvars_vm_list\":\"$tfvars_vm_list\",\"state_has_vms\":\"$state_has_vms\",\"tfvars_has_vms\":\"$tfvars_has_vms\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-            # #endregion
-            
             log "DEBUG Safety Guard: State VMs: $state_vm_list, Tfvars VMs: $tfvars_vm_list"
             
             # Find VMs in state that are NOT in tfvars OR have changed VMID (these will be destroyed)
@@ -1927,22 +1880,12 @@ run_terraform_deploy() {
                 done
             fi
             
-            # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"G\",\"location\":\"setup.sh:1745\",\"message\":\"VMs to destroy detected\",\"data\":{\"vms_to_destroy\":\"$vms_to_destroy\",\"vms_to_destroy_length\":${#vms_to_destroy},\"is_non_empty\":$([ -n "$vms_to_destroy" ] && echo "true" || echo "false")},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-            # #endregion
-            
             # If there are VMs that will be destroyed, warn the user
             # Explicitly check if variable is non-empty (handle whitespace/empty string edge cases)
             if [ -n "$vms_to_destroy" ] && [ "$vms_to_destroy" != "" ]; then
                 log "SAFETY GUARD: Detected VMs that will be destroyed: $vms_to_destroy"
-                # #region agent log
-                echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"G\",\"location\":\"setup.sh:1744\",\"message\":\"Safety guard triggered\",\"data\":{\"vms_to_destroy\":\"$vms_to_destroy\",\"allow_destroy\":\"${THINKDEPLOY_ALLOW_DESTROY:-false}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-                # #endregion
                 if [ "${THINKDEPLOY_ALLOW_DESTROY:-}" != "true" ]; then
                     log "SAFETY GUARD: Calling error_exit to prevent VM destruction"
-                    # #region agent log
-                    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"G\",\"location\":\"setup.sh:1748\",\"message\":\"About to call error_exit\",\"data\":{\"vms_to_destroy\":\"$vms_to_destroy\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-                    # #endregion
                     error_exit "SAFETY GUARD: The following VMs exist in Terraform state but are NOT in the current configuration:" \
                         "  VMs that will be destroyed: $vms_to_destroy" \
                         "  Tfvars file: $tfvars_file" \
@@ -2101,14 +2044,8 @@ run_terraform_deploy() {
       echo "📋 Step 3/4: Planning Terraform changes..."
       echo "Command: terraform plan -var-file=\"$tfvars_file\" -out=\"$PLAN_FILE\""
       set +e  # Temporarily disable exit on error to capture exit code
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"post-fix\",\"hypothesisId\":\"A\",\"location\":\"setup.sh:1750\",\"message\":\"Before terraform plan\",\"data\":{\"tfvars_file\":\"$tfvars_file\",\"plan_file\":\"$PLAN_FILE\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-      # #endregion
       terraform plan -var-file="$tfvars_file" -out="$PLAN_FILE" 2>&1 | tee /tmp/terraform-plan-output.log
       local plan_exit=$?
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"post-fix\",\"hypothesisId\":\"A\",\"location\":\"setup.sh:1753\",\"message\":\"After terraform plan\",\"data\":{\"plan_exit\":$plan_exit,\"plan_output\":\"$(cat /tmp/terraform-plan-output.log | head -50 | jq -Rs . || echo 'ERROR')\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-      # #endregion
       set -e  # Re-enable exit on error
       if [ "$plan_exit" -ne 0 ]; then
           error_exit "Terraform plan failed (exit code: $plan_exit). Check output above."
@@ -2126,14 +2063,8 @@ run_terraform_deploy() {
       echo "🚀 Step 4/4: Applying Terraform changes..."
       echo "Command: terraform apply -auto-approve \"$PLAN_FILE\""
       set +e  # Temporarily disable exit on error to capture exit code
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"post-fix\",\"hypothesisId\":\"A\",\"location\":\"setup.sh:1769\",\"message\":\"Before terraform apply\",\"data\":{\"plan_file\":\"$PLAN_FILE\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-      # #endregion
       terraform apply -auto-approve "$PLAN_FILE" 2>&1 | tee /tmp/terraform-apply-output.log
       local apply_exit=$?
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"post-fix\",\"hypothesisId\":\"A\",\"location\":\"setup.sh:1772\",\"message\":\"After terraform apply\",\"data\":{\"apply_exit\":$apply_exit,\"apply_output\":\"$(cat /tmp/terraform-apply-output.log | head -100 | jq -Rs . || echo 'ERROR')\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-      # #endregion
       set -e  # Re-enable exit on error
       if [ "$apply_exit" -ne 0 ]; then
           error_exit "Terraform apply failed (exit code: $apply_exit). Check log: $LOG_FILE"
@@ -2149,9 +2080,6 @@ run_terraform_deploy() {
       state_list_output=$(terraform state list)
       local state_list_exit=$?
       set -e  # Re-enable exit on error
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"post-fix\",\"hypothesisId\":\"F\",\"location\":\"setup.sh:1793\",\"message\":\"Terraform state list\",\"data\":{\"state_exit\":$state_list_exit,\"state_list\":\"$state_list_output\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-      # #endregion
       
       if [ "$state_list_exit" -ne 0 ]; then
           error_exit "Failed to list Terraform state (exit code: $state_list_exit). Check log: $LOG_FILE"
@@ -2159,9 +2087,6 @@ run_terraform_deploy() {
       
       local state_resources
       state_resources=$(echo "$state_list_output" | grep -v "^$" | wc -l || echo "0")
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"post-fix\",\"hypothesisId\":\"F\",\"location\":\"setup.sh:1799\",\"message\":\"State resources count\",\"data\":{\"state_resources\":$state_resources,\"vm_resources\":$(echo "$state_list_output" | grep -c "^module\.vm\[" || echo "0")},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-      # #endregion
       if [ "$state_resources" -eq 0 ]; then
           error_exit "Terraform state is empty - no resources found. Deployment failed or no resources were created."
       else
@@ -2244,9 +2169,6 @@ build_tfvars_file() {
     # Parse cluster_configs if not already parsed (needed when DEPLOY_ALL_SELECTED=true skips old code)
     # Always parse if cluster_configs exists and AUTOSCALING_JSON is not set (CLUSTER_JSON might be initialized elsewhere)
     if [ -n "$cluster_configs" ] && [ -z "${AUTOSCALING_JSON:-}" ]; then
-        # #region agent log
-        echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"FIX\",\"location\":\"setup.sh:2175\",\"message\":\"Parsing cluster_configs in build_tfvars_file\",\"data\":{\"cluster_configs\":\"${cluster_configs:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-        # #endregion
         # Initialize cluster and autoscaling JSON
         CLUSTER_JSON='{"create_cluster":false,"cluster_name":"","primary_node":"","join_node":"","ha_enabled":false,"ha_group_name":"","ha_nodes":[]}'
         AUTOSCALING_JSON=""
@@ -2259,13 +2181,7 @@ build_tfvars_file() {
             ((LOOP_COUNT++))
             temp_configs=$(echo "$temp_configs" | sed 's/^[[:space:],]*//')
             local CURRENT_LENGTH=${#temp_configs}
-            # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"FIX\",\"location\":\"setup.sh:2190\",\"message\":\"Parsing loop iteration\",\"data\":{\"loop_count\":$LOOP_COUNT,\"temp_configs_length\":$CURRENT_LENGTH,\"temp_configs\":\"${temp_configs:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-            # #endregion
             if [ $CURRENT_LENGTH -eq $PREV_LENGTH ] && [ $CURRENT_LENGTH -gt 0 ]; then
-                # #region agent log
-                echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"FIX\",\"location\":\"setup.sh:2195\",\"message\":\"Loop stuck, breaking\",\"data\":{\"temp_configs\":\"${temp_configs:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-                # #endregion
                 break
             fi
             PREV_LENGTH=$CURRENT_LENGTH
@@ -2275,9 +2191,6 @@ build_tfvars_file() {
                 local REST="${BASH_REMATCH[2]}"
                 # Trim whitespace and newlines from KEY
                 KEY=$(echo "$KEY" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr -d '\n\r')
-                # #region agent log
-                echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"FIX\",\"location\":\"setup.sh:2203\",\"message\":\"Pattern matched\",\"data\":{\"key\":\"$KEY\",\"rest_preview\":\"${REST:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-                # #endregion
                 
                 if [[ "$REST" =~ ^\{ ]]; then
                     local DEPTH=0
@@ -2299,9 +2212,6 @@ build_tfvars_file() {
                     temp_configs=$(echo "$REMAINING" | sed 's/^[[:space:],]*//')
                     
                     if echo "$VALUE" | jq . > /dev/null 2>&1; then
-                        # #region agent log
-                        echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"FIX\",\"location\":\"setup.sh:2215\",\"message\":\"Valid JSON extracted\",\"data\":{\"key\":\"$KEY\",\"value_preview\":\"${VALUE:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-                        # #endregion
                         case "$KEY" in
                             autoscaling)
                                 local AS_GROUP=$(echo "$VALUE" | jq -r '.group // ""' 2>/dev/null)
@@ -2309,9 +2219,6 @@ build_tfvars_file() {
                                 local AS_MAX=$(echo "$VALUE" | jq -r '.max // 10' 2>/dev/null)
                                 local AS_SCALE_UP=$(echo "$VALUE" | jq -r '.scale_up // 80' 2>/dev/null)
                                 local AS_SCALE_DOWN=$(echo "$VALUE" | jq -r '.scale_down // 30' 2>/dev/null)
-                                # #region agent log
-                                echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"FIX\",\"location\":\"setup.sh:2220\",\"message\":\"Processing autoscaling in build_tfvars_file\",\"data\":{\"as_group\":\"$AS_GROUP\",\"as_min\":$AS_MIN,\"as_max\":$AS_MAX,\"as_scale_up\":$AS_SCALE_UP,\"as_scale_down\":$AS_SCALE_DOWN},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-                                # #endregion
                                 if [ -n "$AS_GROUP" ]; then
                                     AUTOSCALING_JSON=$(jq -n \
                                         --arg group "$AS_GROUP" \
@@ -2334,21 +2241,12 @@ build_tfvars_file() {
                         esac
                     fi
                 else
-                    # #region agent log
-                    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"FIX\",\"location\":\"setup.sh:2235\",\"message\":\"REST does not start with {\",\"data\":{\"rest_preview\":\"${REST:0:50}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-                    # #endregion
                     break
                 fi
             else
-                # #region agent log
-                echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"FIX\",\"location\":\"setup.sh:2240\",\"message\":\"Pattern did not match\",\"data\":{\"temp_configs_preview\":\"${temp_configs:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-                # #endregion
                 break
             fi
         done
-        # #region agent log
-        echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"FIX\",\"location\":\"setup.sh:2240\",\"message\":\"Finished parsing cluster_configs in build_tfvars_file\",\"data\":{\"has_autoscaling_json\":$([ -n "${AUTOSCALING_JSON:-}" ] && echo "true" || echo "false"),\"autoscaling_json\":\"${AUTOSCALING_JSON:-}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-        # #endregion
     fi
     
     # CRITICAL: Preserve existing VMs and LXCs from Terraform state to prevent accidental destruction
@@ -2428,15 +2326,9 @@ build_tfvars_file() {
                         # Check if jq succeeded and output is valid JSON
                         if [ $jq_exit_code -eq 0 ] && [ -n "$existing_vm_entry" ] && echo "$existing_vm_entry" | jq -e . >/dev/null 2>&1; then
                             existing_vms_json=$(echo "$existing_vms_json" | jq ". + {\"$state_vm\": $existing_vm_entry}" 2>/dev/null || echo "$existing_vms_json")
-                            log "Preserved existing VM from state: $state_vm (VMID: $state_vmid)"
-                            # #region agent log
-                            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"H\",\"location\":\"setup.sh:2147\",\"message\":\"Successfully preserved VM from state\",\"data\":{\"vm_name\":\"$state_vm\",\"vmid\":\"$state_vmid\",\"jq_exit\":$jq_exit_code,\"entry_preview\":\"$(echo "$existing_vm_entry" | jq -c . | head -c 100)\"},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-                            # #endregion agent log
+                            log "Preserved existing VM from state: $state_vm (VMID: $state_vmid)" agent log
                         else
-                            warning "Failed to build VM entry for $state_vm from state (jq exit: $jq_exit_code, output: ${existing_vm_entry:0:100}), skipping preservation"
-                            # #region agent log
-                            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"H\",\"location\":\"setup.sh:2149\",\"message\":\"Failed to preserve VM from state\",\"data\":{\"vm_name\":\"$state_vm\",\"vmid\":\"$state_vmid\",\"jq_exit\":$jq_exit_code,\"jq_output\":\"${existing_vm_entry:0:200}\",\"state_node\":\"$state_node\",\"state_cores\":\"$state_cores\",\"state_memory\":\"$state_memory\"},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-                            # #endregion agent log
+                            warning "Failed to build VM entry for $state_vm from state (jq exit: $jq_exit_code, output: ${existing_vm_entry:0:100}), skipping preservation" agent log
                         fi
                     fi
                 fi
@@ -2688,48 +2580,23 @@ build_tfvars_file() {
     
     # Add snapshots - parse if not already parsed
     local final_snapshots_json="{}"
-    # #region agent log
-    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"S\",\"location\":\"setup.sh:2510\",\"message\":\"Checking snapshots variable\",\"data\":{\"snapshots_length\":${#snapshots},\"snapshots_is_empty\":$([ -z "$snapshots" ] && echo "true" || echo "false"),\"snapshots_preview\":\"${snapshots:0:200}\"},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-    # #endregion
     if [ -n "$snapshots" ]; then
-        # #region agent log
-        echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"S\",\"location\":\"setup.sh:2518\",\"message\":\"Starting snapshot parsing\",\"data\":{\"snapshots_length\":${#snapshots},\"snapshots_preview\":\"${snapshots:0:200}\",\"has_snapshots_json\":$([ -n "${SNAPSHOTS_JSON:-}" ] && echo "true" || echo "false")},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-        # #endregion
         # Check if SNAPSHOTS_JSON was already parsed by old code
         if [ -n "${SNAPSHOTS_JSON:-}" ] && echo "$SNAPSHOTS_JSON" | jq -e . >/dev/null 2>&1; then
             final_snapshots_json="$SNAPSHOTS_JSON"
             log "Using pre-parsed SNAPSHOTS_JSON"
-            # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"S\",\"location\":\"setup.sh:2519\",\"message\":\"Using pre-parsed SNAPSHOTS_JSON\",\"data\":{\"snapshots_json_keys\":$(echo "$SNAPSHOTS_JSON" | jq 'keys | length' 2>/dev/null || echo "0")},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-            # #endregion
         else
             # Parse snapshots (snapshot:{...}) format
             log "Parsing snapshots in build_tfvars_file()..."
             # Remove leading/trailing whitespace and newlines
             local temp_snapshots=$(echo "$snapshots" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr -d '\n\r' | sed 's/^[[:space:]]*//')
-            # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"S\",\"location\":\"setup.sh:2521\",\"message\":\"About to parse snapshots\",\"data\":{\"temp_snapshots_length\":${#temp_snapshots},\"temp_snapshots_preview\":\"${temp_snapshots:0:200}\"},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-            # #endregion
             
             while [ -n "$temp_snapshots" ]; do
-                # #region agent log
-                echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"S\",\"location\":\"setup.sh:2523\",\"message\":\"Snapshot parsing loop iteration\",\"data\":{\"temp_snapshots_length\":${#temp_snapshots},\"temp_snapshots_preview\":\"${temp_snapshots:0:200}\"},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-                # #endregion
                 # Match snapshot: prefix (with optional leading whitespace)
                 if [[ "$temp_snapshots" =~ ^[[:space:]]*snapshot:(.+)$ ]]; then
                     local REST="${BASH_REMATCH[1]}"
-                    # #region agent log
-                    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"S\",\"location\":\"setup.sh:2524\",\"message\":\"Matched snapshot: prefix\",\"data\":{\"rest_length\":${#REST},\"rest_preview\":\"${REST:0:200}\",\"rest_first_char\":\"${REST:0:1}\",\"rest_first_char_code\":$(printf '%d' "'${REST:0:1}")},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-                    # #endregion
                     
                     # Check if REST starts with {
-                    # #region agent log
-                    if [[ "$REST" =~ ^\{ ]]; then
-                        echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"S\",\"location\":\"setup.sh:2540\",\"message\":\"REST starts with {\",\"data\":{\"rest_first_char\":\"${REST:0:1}\"},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-                    else
-                        echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"S\",\"location\":\"setup.sh:2540\",\"message\":\"REST does NOT start with {\",\"data\":{\"rest_first_char\":\"${REST:0:1}\",\"rest_first_char_code\":$(printf '%d' "'${REST:0:1}"),\"rest_preview\":\"${REST:0:50}\"},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-                    fi
-                    # #endregion
                     
                     if [[ "$REST" =~ ^\{ ]]; then
                         local DEPTH=0
@@ -2747,10 +2614,6 @@ build_tfvars_file() {
                             fi
                         done
                         
-                        # #region agent log
-                        echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"S\",\"location\":\"setup.sh:2540\",\"message\":\"Extracted snapshot JSON\",\"data\":{\"value_length\":${#VALUE},\"value\":\"$VALUE\"},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-                        # #endregion
-                        
                         temp_snapshots="${REST:${#VALUE}}"
                         temp_snapshots="${temp_snapshots#*,}"
                         
@@ -2766,25 +2629,13 @@ build_tfvars_file() {
                             SNAPSHOT_OBJ=$(echo "$VALUE" | jq '{node: .node, vmid: .vmid, snapname: (.snapname // .name), description: (.description // ""), vm_type: (.vm_type // "qemu"), enabled: true}' 2>/dev/null || echo "$VALUE")
                             final_snapshots_json=$(echo "$final_snapshots_json" | jq ".\"$SNAPSHOT_KEY\" = $SNAPSHOT_OBJ" 2>/dev/null || echo "$final_snapshots_json")
                             log "Parsed snapshot: $SNAPSHOT_KEY"
-                            # #region agent log
-                            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"S\",\"location\":\"setup.sh:2556\",\"message\":\"Successfully parsed snapshot\",\"data\":{\"snapshot_key\":\"$SNAPSHOT_KEY\",\"vmid\":\"$VMID\",\"snapname\":\"$SNAPNAME\",\"final_json_keys\":$(echo "$final_snapshots_json" | jq 'keys | length' 2>/dev/null || echo "0")},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-                            # #endregion
                         else
                             warning "Invalid JSON in snapshot config: ${VALUE:0:100}..."
-                            # #region agent log
-                            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"S\",\"location\":\"setup.sh:2558\",\"message\":\"Invalid JSON in snapshot config\",\"data\":{\"value\":\"${VALUE:0:200}\",\"jq_error\":\"$(echo "$VALUE" | jq . 2>&1 | head -3 | jq -Rs . || echo 'ERROR')\"},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-                            # #endregion
                         fi
                     else
-                        # #region agent log
-                        echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"S\",\"location\":\"setup.sh:2560\",\"message\":\"REST does not start with {\",\"data\":{\"rest_preview\":\"${REST:0:50}\"},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-                        # #endregion
                         break
                     fi
                 else
-                    # #region agent log
-                    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"S\",\"location\":\"setup.sh:2563\",\"message\":\"No match for snapshot: prefix\",\"data\":{\"temp_snapshots_preview\":\"${temp_snapshots:0:100}\"},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-                    # #endregion
                     break
                 fi
             done
@@ -2801,9 +2652,6 @@ build_tfvars_file() {
     fi
     
     # Add cluster config (already in JSON format from earlier parsing)
-    # #region agent log
-    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"F\",\"location\":\"setup.sh:2625\",\"message\":\"Adding cluster_config to tfvars\",\"data\":{\"has_cluster_configs\":$([ -n "$cluster_configs" ] && echo "true" || echo "false"),\"has_cluster_json\":$([ -n "${CLUSTER_JSON:-}" ] && echo "true" || echo "false"),\"cluster_json\":\"${CLUSTER_JSON:-}\",\"cluster_configs_preview\":\"${cluster_configs:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-    # #endregion
     if [ -n "$cluster_configs" ] && [ -n "${CLUSTER_JSON:-}" ]; then
         TFVARS_JSON="$TFVARS_JSON\"cluster_config\":$CLUSTER_JSON,"
     else
@@ -2811,9 +2659,6 @@ build_tfvars_file() {
     fi
     
     # Add autoscaling config (if configured)
-    # #region agent log
-    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"F\",\"location\":\"setup.sh:2635\",\"message\":\"Adding autoscaling_config to tfvars\",\"data\":{\"has_autoscaling_json\":$([ -n "${AUTOSCALING_JSON:-}" ] && echo "true" || echo "false"),\"autoscaling_json\":\"${AUTOSCALING_JSON:-}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-    # #endregion
     if [ -n "${AUTOSCALING_JSON:-}" ]; then
         TFVARS_JSON="$TFVARS_JSON\"autoscaling_config\":$AUTOSCALING_JSON,"
         log "Added autoscaling config to tfvars"
@@ -2891,17 +2736,10 @@ build_tfvars_file() {
     TFVARS_JSON="$TFVARS_JSON}"
     
     # Validate JSON and write to file (using absolute path)
-    # #region agent log
-    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"H\",\"location\":\"setup.sh:2305\",\"message\":\"About to validate TFVARS_JSON\",\"data\":{\"tfvars_json_length\":${#TFVARS_JSON},\"tfvars_json_preview\":\"${TFVARS_JSON:0:200}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-    # #endregion
     
     local json_validation_output
     json_validation_output=$(echo "$TFVARS_JSON" | jq . > "$TFVARS_FILE" 2>&1)
     local json_validation_exit=$?
-    
-    # #region agent log
-    echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"H\",\"location\":\"setup.sh:2310\",\"message\":\"JSON validation result\",\"data\":{\"json_validation_exit\":$json_validation_exit,\"json_error\":\"$(echo "$json_validation_output" | head -5 | jq -Rs . || echo 'N/A')\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-    # #endregion
     
     if [ "$json_validation_exit" -ne 0 ]; then
         log "ERROR: TFVARS_JSON validation failed. JSON preview (first 500 chars): ${TFVARS_JSON:0:500}"
@@ -2967,9 +2805,6 @@ build_tfvars_file() {
     
     # If Deploy All was selected, deploy immediately
     if [ "${DEPLOY_ALL_SELECTED:-false}" = "true" ]; then
-        # #region agent log
-        echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\",\"location\":\"setup.sh:1801\",\"message\":\"Deploy All flow entered\",\"data\":{\"DEPLOY_ALL_SELECTED\":\"${DEPLOY_ALL_SELECTED}\",\"TFVARS_FILE\":\"$TFVARS_FILE\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-        # #endregion
         # Use REPO_ROOT as TF_ROOT (already set at script start)
         TF_ROOT="$REPO_ROOT"
         
@@ -2985,9 +2820,6 @@ build_tfvars_file() {
         # Count enabled VMs and total VMs
         enabled_vms=$(jq -r '.vms // {} | to_entries | map(select(.value.enabled==true)) | length' "$TFVARS_FILE" 2>/dev/null || echo "0")
         total_vms=$(jq -r '.vms // {} | keys | length' "$TFVARS_FILE" 2>/dev/null || echo "0")
-        # #region agent log
-        echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\",\"location\":\"setup.sh:1817\",\"message\":\"Tfvars VM counts\",\"data\":{\"enabled_vms\":$enabled_vms,\"total_vms\":$total_vms,\"tfvars_vms\":$(jq -c '.vms' "$TFVARS_FILE" 2>/dev/null || echo "\"ERROR\""),\"vms_string_length\":${#vms}},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-        # #endregion
         log "DEBUG DeployAll: TFVARS_FILE=$TFVARS_FILE enabled_vms=$enabled_vms total_vms=$total_vms TF_ROOT=$TF_ROOT"
         
         # Safety check: If VMs were collected but tfvars has 0 VMs, abort
@@ -3008,32 +2840,15 @@ build_tfvars_file() {
         has_security=$(jq -e '.security_config // {} | keys | length > 0' "$TFVARS_FILE" >/dev/null 2>&1 && echo "true" || echo "false")
         has_cluster=$(jq -e '.cluster_config // {} | keys | length > 0' "$TFVARS_FILE" >/dev/null 2>&1 && echo "true" || echo "false")
         
-        # #region agent log
-        echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"B\",\"location\":\"setup.sh:2138\",\"message\":\"Tfvars resource counts\",\"data\":{\"enabled_vms\":$enabled_vms,\"total_vms\":$total_vms,\"enabled_lxcs\":$enabled_lxcs,\"total_lxcs\":$total_lxcs,\"total_storages\":$total_storages,\"total_backup_jobs\":$total_backup_jobs,\"total_snapshots\":$total_snapshots,\"has_networking\":\"$has_networking\",\"has_security\":\"$has_security\",\"has_cluster\":\"$has_cluster\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-        # #endregion
-        
         log "DEBUG DeployAll: enabled_vms=$enabled_vms total_vms=$total_vms enabled_lxcs=$enabled_lxcs total_lxcs=$total_lxcs"
-        
-        # #region agent log
-        echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\",\"location\":\"setup.sh:2144\",\"message\":\"Checking Deploy All conditions\",\"data\":{\"enabled_vms_gt_0\":$([ "$enabled_vms" -gt 0 ] && echo "true" || echo "false"),\"enabled_lxcs_gt_0\":$([ "$enabled_lxcs" -gt 0 ] && echo "true" || echo "false"),\"total_lxcs_gt_0\":$([ "$total_lxcs" -gt 0 ] && echo "true" || echo "false")},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-        # #endregion
         
         if [ "$enabled_vms" -gt 0 ]; then
             log "Deploy All: Deploying $enabled_vms enabled VM(s) from $TFVARS_FILE"
-            # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\",\"location\":\"setup.sh:2133\",\"message\":\"Calling run_terraform_deploy\",\"data\":{\"enabled_vms\":$enabled_vms,\"tfvars_file\":\"$TFVARS_FILE\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-            # #endregion
             run_terraform_deploy "$TFVARS_FILE"
-            # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\",\"location\":\"setup.sh:2137\",\"message\":\"run_terraform_deploy returned\",\"data\":{\"exit_code\":$?},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-            # #endregion
             # Exit after successful deployment
             exit 0
         elif [ "$enabled_lxcs" -gt 0 ]; then
             log "Deploy All: Deploying $enabled_lxcs enabled LXC container(s) from $TFVARS_FILE"
-            # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\",\"location\":\"setup.sh:2157\",\"message\":\"Calling run_terraform_deploy for LXCs\",\"data\":{\"enabled_lxcs\":$enabled_lxcs,\"total_lxcs\":$total_lxcs,\"tfvars_file\":\"$TFVARS_FILE\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-            # #endregion
             run_terraform_deploy "$TFVARS_FILE"
             exit 0
         elif [ "$total_vms" -gt 0 ]; then
@@ -3054,9 +2869,6 @@ build_tfvars_file() {
             # No VMs but have other resources - deploy them
             log "Deploy All: Deploying resources (no VMs, but have other resources)"
             log "DEBUG DeployAll: total_lxcs=$total_lxcs total_storages=$total_storages total_backup_jobs=$total_backup_jobs total_snapshots=$total_snapshots"
-            # #region agent log
-            echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"A\",\"location\":\"setup.sh:2178\",\"message\":\"Calling run_terraform_deploy for non-VM resources\",\"data\":{\"total_lxcs\":$total_lxcs,\"total_storages\":$total_storages,\"total_backup_jobs\":$total_backup_jobs,\"total_snapshots\":$total_snapshots,\"tfvars_file\":\"$TFVARS_FILE\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-            # #endregion
             run_terraform_deploy "$TFVARS_FILE"
             exit 0
         else

@@ -24,10 +24,6 @@ resource "null_resource" "autoscaling" {
     command     = <<-EOT
       set -euo pipefail
       
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"post-fix\",\"hypothesisId\":\"A\",\"location\":\"modules/autoscaling/main.tf:22\",\"message\":\"Autoscaling setup started\",\"data\":{\"group\":\"${self.triggers.group}\",\"resource_type\":\"${self.triggers.resource_type}\",\"min\":${self.triggers.min},\"max\":${self.triggers.max},\"scale_up\":${self.triggers.scale_up},\"scale_down\":${self.triggers.scale_down},\"install_path\":\"${self.triggers.install_path}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-      # #endregion
-      
       echo "=== Autoscaling Setup Started ==="
       echo "Group: ${self.triggers.group}"
       echo "Resource Type: ${self.triggers.resource_type}"
@@ -161,10 +157,6 @@ INSTALL_EOF
         "${self.triggers.scale_down}"
       
       INSTALL_EXIT=$?
-      
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"post-fix\",\"hypothesisId\":\"A\",\"location\":\"modules/autoscaling/main.tf:120\",\"message\":\"Autoscaling installation result\",\"data\":{\"install_exit\":$INSTALL_EXIT,\"tool_name\":\"$TOOL_NAME\",\"group\":\"${self.triggers.group}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-      # #endregion
       
       if [ $INSTALL_EXIT -ne 0 ]; then
         echo "ERROR: Autoscaling installation failed (exit code: $INSTALL_EXIT)"

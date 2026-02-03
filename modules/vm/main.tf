@@ -1,4 +1,4 @@
-# VM management using pvesh CLI
+2# VM management using pvesh CLI
 resource "null_resource" "vm" {
   count = var.enabled ? 1 : 0
 
@@ -13,17 +13,13 @@ resource "null_resource" "vm" {
     pm_ssh_host = var.pm_ssh_host
     pm_ssh_user = var.pm_ssh_user
     pm_ssh_key  = var.pm_ssh_private_key_path
-    force_run   = var.force_run
+4 cat /root/thinkdeploy-proxmox-platform/generated/thinkdeploy.auto.tfvars.json | jq '.autoscaling_config'l    force_run   = var.force_run
   }
 
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-c"]
     command     = <<-EOT
       set -euo pipefail
-      
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\",\"location\":\"modules/vm/main.tf:22\",\"message\":\"VM provisioner started\",\"data\":{\"vmid\":\"${self.triggers.vmid}\",\"node\":\"${self.triggers.node}\",\"enabled\":\"${var.enabled}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-      # #endregion
       
       echo "=== VM Creation Script Started ==="
       echo "VMID: ${self.triggers.vmid}"
@@ -43,15 +39,9 @@ resource "null_resource" "vm" {
       echo "Testing SSH connectivity..."
       SSH_TEST=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i "${self.triggers.pm_ssh_key}" "${self.triggers.pm_ssh_user}@${self.triggers.pm_ssh_host}" "echo 'SSH OK'" 2>&1)
       SSH_TEST_EXIT=$?
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"E\",\"location\":\"modules/vm/main.tf:40\",\"message\":\"SSH test result\",\"data\":{\"ssh_exit\":$SSH_TEST_EXIT,\"ssh_host\":\"${self.triggers.pm_ssh_host}\",\"ssh_user\":\"${self.triggers.pm_ssh_user}\",\"ssh_key\":\"${self.triggers.pm_ssh_key}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-      # #endregion
       if [ $SSH_TEST_EXIT -ne 0 ]; then
         echo "ERROR: SSH connection failed to ${self.triggers.pm_ssh_user}@${self.triggers.pm_ssh_host}"
         echo "SSH error output: $SSH_TEST"
-        # #region agent log
-        echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"E\",\"location\":\"modules/vm/main.tf:43\",\"message\":\"SSH connection failed\",\"data\":{\"ssh_error\":\"$SSH_TEST\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-        # #endregion
         exit 1
       fi
       echo "SSH connectivity verified: $SSH_TEST"
@@ -132,9 +122,6 @@ resource "null_resource" "vm" {
       echo "pvesh create output:"
       echo "$PVE_OUTPUT"
       
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"D\",\"location\":\"modules/vm/main.tf:111\",\"message\":\"pvesh create result\",\"data\":{\"pve_exit\":$PVE_EXIT,\"pve_output\":\"$(echo "$PVE_OUTPUT" | head -20 | jq -Rs . || echo 'ERROR')\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-      # #endregion
       if [ $PVE_EXIT -eq 0 ]; then
         echo "pvesh create command succeeded (exit code: 0)"
         # Wait a moment for VM to be registered
