@@ -20,10 +20,6 @@ resource "null_resource" "lxc" {
     command     = <<-EOT
       set -euo pipefail
       
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"LXC\",\"location\":\"modules/lxc/main.tf:21\",\"message\":\"LXC provisioner started\",\"data\":{\"vmid\":\"${self.triggers.vmid}\",\"node\":\"${self.triggers.node}\",\"enabled\":\"${var.enabled}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-      # #endregion
-      
       echo "=== LXC Container Creation Script Started ==="
       echo "VMID: ${self.triggers.vmid}"
       echo "Node: ${self.triggers.node}"
@@ -42,9 +38,6 @@ resource "null_resource" "lxc" {
       echo "Testing SSH connectivity..."
       SSH_TEST=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i "${self.triggers.pm_ssh_key}" "${self.triggers.pm_ssh_user}@${self.triggers.pm_ssh_host}" "echo 'SSH OK'" 2>&1)
       SSH_TEST_EXIT=$?
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"LXC\",\"location\":\"modules/lxc/main.tf:40\",\"message\":\"SSH test result\",\"data\":{\"ssh_exit\":$SSH_TEST_EXIT,\"ssh_host\":\"${self.triggers.pm_ssh_host}\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-      # #endregion
       if [ $SSH_TEST_EXIT -ne 0 ]; then
         echo "ERROR: SSH connection failed to ${self.triggers.pm_ssh_user}@${self.triggers.pm_ssh_host}"
         echo "SSH error output: $SSH_TEST"
@@ -121,10 +114,6 @@ resource "null_resource" "lxc" {
       # Always show output
       echo "pvesh create output:"
       echo "$PVE_OUTPUT"
-      
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"LXC\",\"location\":\"modules/lxc/main.tf:90\",\"message\":\"pvesh create result\",\"data\":{\"pve_exit\":$PVE_EXIT,\"pve_output\":\"$(echo "$PVE_OUTPUT" | head -20 | jq -Rs . || echo 'ERROR')\"},\"timestamp\":$(date +%s000)}" >> /root/.cursor/debug.log
-      # #endregion
       
       if [ $PVE_EXIT -eq 0 ]; then
         echo "pvesh create command succeeded (exit code: 0)"

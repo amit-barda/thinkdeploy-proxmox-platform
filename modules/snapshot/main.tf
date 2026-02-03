@@ -18,10 +18,6 @@ resource "null_resource" "snapshot" {
     command     = <<-EOT
       set -euo pipefail
       
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"SNAP\",\"location\":\"modules/snapshot/main.tf:18\",\"message\":\"Snapshot provisioner started\",\"data\":{\"vmid\":\"${self.triggers.vmid}\",\"snapname\":\"${self.triggers.snapname}\",\"vm_type\":\"${self.triggers.vm_type}\",\"node\":\"${self.triggers.node}\"},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-      # #endregion
-      
       echo "=== Snapshot Creation Script Started ==="
       echo "VMID: ${self.triggers.vmid}"
       echo "Snapshot name: ${self.triggers.snapname}"
@@ -42,9 +38,6 @@ resource "null_resource" "snapshot" {
       echo "Testing SSH connectivity..."
       SSH_TEST=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -i "${self.triggers.pm_ssh_key}" "${self.triggers.pm_ssh_user}@${self.triggers.pm_ssh_host}" "echo 'SSH OK'" 2>&1)
       SSH_TEST_EXIT=$?
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"SNAP\",\"location\":\"modules/snapshot/main.tf:40\",\"message\":\"SSH test result\",\"data\":{\"ssh_exit\":$SSH_TEST_EXIT,\"ssh_host\":\"${self.triggers.pm_ssh_host}\"},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-      # #endregion
       if [ $SSH_TEST_EXIT -ne 0 ]; then
         echo "ERROR: SSH connection failed to ${self.triggers.pm_ssh_user}@${self.triggers.pm_ssh_host}"
         echo "SSH error output: $SSH_TEST"
@@ -113,10 +106,6 @@ resource "null_resource" "snapshot" {
       # Always show output
       echo "Snapshot command output:"
       echo "$SNAP_OUTPUT"
-      
-      # #region agent log
-      echo "{\"sessionId\":\"debug-session\",\"runId\":\"run1\",\"hypothesisId\":\"SNAP\",\"location\":\"modules/snapshot/main.tf:111\",\"message\":\"Snapshot command result\",\"data\":{\"snap_exit\":$SNAP_EXIT,\"snap_output\":\"$(echo "$SNAP_OUTPUT" | head -20 | jq -Rs . || echo 'ERROR')\"},\"timestamp\":$(date +%s)000}" >> /root/.cursor/debug.log
-      # #endregion
       
       if [ $SNAP_EXIT -eq 0 ]; then
         echo "Snapshot ${self.triggers.snapname} created successfully for ${self.triggers.vm_type} ${self.triggers.vmid}"
