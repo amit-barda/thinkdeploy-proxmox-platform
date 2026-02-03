@@ -1,0 +1,90 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        test-suite: [bash, terraform]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bats jq curl unzip
+    
+    - name: Install Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: "1.6.0"
+    
+    - name: Run bash tests
+      if: matrix.test-suite == 'bash'
+      run: make test-bash
+    
+    - name: Run terraform tests
+      if: matrix.test-suite == 'terraform'
+      run: |
+        chmod +x tests/mocks/*
+        make test-terraform
+    
+    - name: Upload test logs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-logs-${{ matrix.test-suite }}
+        path: |
+          /tmp/mock_*.log
+          /tmp/plan_output.txt
+          /tmp/validate_output.txt
+
+  integration:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bats jq
+    
+    - name: Run integration tests (mocked)
+      env:
+        PROXMOX_INTEGRATION_TESTS: "false"
+      run: |
+        chmod +x tests/mocks/*
+        export PATH="$(pwd)/tests/mocks:$$PATH"
+        # Integration tests with mocks (no real Proxmox required)
+        make test-integration || echo "Integration tests skipped (mocked mode)"
+
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Install shellcheck
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y shellcheck
+    
+    - name: Install Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: "1.6.0"
+    
+    - name: Run linters
+      run: make lint

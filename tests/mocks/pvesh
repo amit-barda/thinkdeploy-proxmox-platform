@@ -1,0 +1,74 @@
+#!/bin/bash
+# Mock pvesh command for testing
+# Logs all arguments and returns mock responses
+
+MOCK_LOG="${MOCK_PVESH_LOG:-/tmp/mock_pvesh.log}"
+
+# Log the command
+echo "[$(date +%s)] pvesh called with: $*" >> "$MOCK_LOG"
+
+# Parse action and resource
+ACTION="$1"
+RESOURCE="$2"
+shift 2 || true
+
+# Log action and resource
+echo "  Action: $ACTION" >> "$MOCK_LOG"
+echo "  Resource: $RESOURCE" >> "$MOCK_LOG"
+echo "  Args: $*" >> "$MOCK_LOG"
+
+# Simulate pvesh responses
+case "$ACTION" in
+    get)
+        case "$RESOURCE" in
+            /version)
+                echo '{"version":"8.0.0"}'
+                ;;
+            /nodes)
+                echo '[{"node":"pve1","status":"online"},{"node":"pve2","status":"online"}]'
+                ;;
+            /nodes/*/qemu/*/status/current)
+                # VM status check
+                echo '{"status":"running","vmid":999}'
+                ;;
+            /nodes/*/storage/*/status)
+                echo '{"status":"available","type":"lvm"}'
+                ;;
+            /cluster/status)
+                echo '[{"type":"cluster","name":"test-cluster","quorate":true}]'
+                ;;
+            *)
+                echo '{}'
+                ;;
+        esac
+        exit 0
+        ;;
+    create)
+        case "$RESOURCE" in
+            /nodes/*/qemu)
+                echo "VM created: vmid=$(echo "$*" | grep -o '--vmid [0-9]*' | awk '{print $2}')"
+                exit 0
+                ;;
+            /nodes/*/lxc)
+                echo "LXC created: vmid=$(echo "$*" | grep -o '--vmid [0-9]*' | awk '{print $2}')"
+                exit 0
+                ;;
+            /storage)
+                echo "Storage created"
+                exit 0
+                ;;
+            *)
+                echo "Resource created"
+                exit 0
+                ;;
+        esac
+        ;;
+    delete)
+        echo "Resource deleted"
+        exit 0
+        ;;
+    *)
+        echo "Mock pvesh: Unknown action $ACTION"
+        exit 0
+        ;;
+esac

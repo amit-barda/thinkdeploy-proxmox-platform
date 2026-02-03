@@ -1,0 +1,22 @@
+{
+  "web-server-01": {
+    "node": "pve1",
+    "vmid": 100,
+    "cores": 2,
+    "memory": 2048,
+    "disk": "50G",
+    "storage": "local-lvm",
+    "network": "model=virtio,bridge=vmbr0",
+    "enabled": true
+  },
+  "db-server-01": {
+    "node": "pve1",
+    "vmid": 101,
+    "cores": 4,
+    "memory": 4096,
+    "disk": "100G",
+    "storage": "local-lvm",
+    "network": "model=virtio,bridge=vmbr0",
+    "enabled": true
+  }
+}

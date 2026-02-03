@@ -1,0 +1,70 @@
+#!/bin/bash
+# Mock SSH command for testing
+# Logs all arguments and simulates SSH behavior
+
+MOCK_LOG="${MOCK_SSH_LOG:-/tmp/mock_ssh.log}"
+
+# Log the command
+echo "[$(date +%s)] SSH called with: $*" >> "$MOCK_LOG"
+
+# Extract key arguments
+SSH_KEY=""
+SSH_HOST=""
+SSH_USER=""
+SSH_COMMAND=""
+
+# Parse arguments (simplified)
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -i)
+            SSH_KEY="$2"
+            shift 2
+            ;;
+        -o)
+            shift 2  # Skip SSH options
+            ;;
+        *@*)
+            # Extract user@host
+            IFS='@' read -r SSH_USER SSH_HOST <<< "$1"
+            shift
+            ;;
+        *)
+            # Command to execute
+            SSH_COMMAND="$*"
+            break
+            ;;
+    esac
+done
+
+# Log parsed arguments
+echo "  Key: $SSH_KEY" >> "$MOCK_LOG"
+echo "  User: $SSH_USER" >> "$MOCK_LOG"
+echo "  Host: $SSH_HOST" >> "$MOCK_LOG"
+echo "  Command: $SSH_COMMAND" >> "$MOCK_LOG"
+
+# Simulate SSH behavior based on command
+if echo "$SSH_COMMAND" | grep -q "pvesh get /nodes/.*/qemu/.*/status/current"; then
+    # VM exists check - return mock JSON
+    echo '{"status":"running","vmid":999}'
+    exit 0
+elif echo "$SSH_COMMAND" | grep -q "pvesh get /nodes"; then
+    # Node query - return mock node list
+    echo '[{"node":"pve1","status":"online"},{"node":"pve2","status":"online"}]'
+    exit 0
+elif echo "$SSH_COMMAND" | grep -q "pvesh create"; then
+    # VM creation - simulate success
+    echo "VM created successfully"
+    exit 0
+elif echo "$SSH_COMMAND" | grep -q "echo.*OK"; then
+    # Connectivity test
+    echo "OK"
+    exit 0
+elif echo "$SSH_COMMAND" | grep -q "hostname"; then
+    # Hostname command
+    echo "pve1"
+    exit 0
+else
+    # Default: simulate success
+    echo "Mock SSH: Command executed"
+    exit 0
+fi

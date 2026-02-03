@@ -1,0 +1,33 @@
+#!/bin/bash
+# Mock qm command for testing
+# Simulates Proxmox qm (QEMU/KVM) command
+
+MOCK_LOG="${MOCK_QM_LOG:-/tmp/mock_qm.log}"
+
+echo "[$(date +%s)] qm called with: $*" >> "$MOCK_LOG"
+
+ACTION="$1"
+VMID="$2"
+
+case "$ACTION" in
+    status)
+        # Simulate VM exists
+        if [ "$VMID" = "999" ]; then
+            echo "status: running"
+            exit 0
+        else
+            # VM doesn't exist
+            echo "VM $VMID not found"
+            exit 1
+        fi
+        ;;
+    list)
+        echo "VMID NAME STATUS"
+        echo "  100 test-vm running"
+        exit 0
+        ;;
+    *)
+        echo "Mock qm: $*"
+        exit 0
+        ;;
+esac

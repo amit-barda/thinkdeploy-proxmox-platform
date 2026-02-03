@@ -1,0 +1,26 @@
+# Generated Terraform variables (contains secrets)
+generated/
+*.tfvars.json
+!terraform.tfvars.example
+
+# Terraform state and lock files
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfstate
+*.tfstate.*
+
+# Log files
+*.log
+/tmp/thinkdeploy-*
+
+# Last tfvars pointer (contains absolute path only, safe to commit but typically ignored)
+.thinkdeploy_last_tfvars
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~

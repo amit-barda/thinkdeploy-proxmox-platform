@@ -1,0 +1,235 @@
+--- a/setup.sh
++++ b/setup.sh
+@@ -108,6 +108,50 @@ configure_proxmox_connection() {
+     log "Proxmox connection configured" 1>&2
+ }
+ 
++# Validate Proxmox connection settings
++validate_proxmox_connection() {
++    local ssh_host="${TF_VAR_pm_ssh_host:-localhost}"
++    local ssh_user="${TF_VAR_pm_ssh_user:-root}"
++    local ssh_key="${TF_VAR_pm_ssh_private_key_path:-~/.ssh/id_rsa}"
++    
++    # Expand SSH key path
++    ssh_key="${ssh_key/#\~/$HOME}"
++    ssh_key=$(readlink -f "$ssh_key" 2>/dev/null || realpath "$ssh_key" 2>/dev/null || echo "$ssh_key")
++    
++    # Check if SSH key exists
++    if [ ! -f "$ssh_key" ]; then
++        error_exit "SSH key file not found: $ssh_key"
++    fi
++    
++    # Validate localhost usage
++    if [ "$ssh_host" = "localhost" ] || [ "$ssh_host" = "127.0.0.1" ]; then
++        log "WARNING: pm_ssh_host is set to localhost. Validating we're on Proxmox host..."
++        
++        # Check if /etc/pve exists (Proxmox indicator)
++        if [ ! -d "/etc/pve" ]; then
++            # Try to run pvesh locally
++            if ! command -v pvesh &> /dev/null; then
++                error_exit "pm_ssh_host is 'localhost' but this doesn't appear to be a Proxmox host:" \
++                    "  - /etc/pve directory not found" \
++                    "  - pvesh command not found" \
++                    "  Please set pm_ssh_host to the actual Proxmox node hostname/IP"
++            fi
++            
++            # Try pvesh get /version
++            if ! pvesh get /version &> /dev/null; then
++                error_exit "pm_ssh_host is 'localhost' but pvesh cannot connect to Proxmox API." \
++                    "  Please set pm_ssh_host to the actual Proxmox node hostname/IP"
++            fi
++        fi
++        
++        log "Confirmed: Running on Proxmox host (localhost validation passed)"
++    fi
++    
++    # Validate SSH connectivity
++    log "Testing SSH connectivity to ${ssh_user}@${ssh_host}..."
++    if ! ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i "$ssh_key" \
++        "${ssh_user}@${ssh_host}" "echo 'SSH OK'" > /dev/null 2>&1; then
++        error_exit "SSH connection to ${ssh_user}@${ssh_host} failed. Check SSH key and connectivity."
++    fi
++    log "SSH connectivity validated"
++    
++    # Validate node name exists (if we can query Proxmox)
++    if [ "$PROXMOX_CLI_METHOD" = "pvesh" ]; then
++        log "Validating Proxmox node names..."
++        # This will be done later when we have the actual node names from config
++    fi
++}
++
+ # Helper function to execute Proxmox commands using proxmoxer (Python API)
+ proxmoxer_execute() {
+@@ -1534,7 +1578,20 @@ fi
+ 
+ # Build terraform variables JSON file (safer than command-line args)
+ # This will be used for both plan and apply
+-TFVARS_FILE="/tmp/thinkdeploy-$(date +%s).tfvars.json"
++# Use persistent location inside repo: ./generated/thinkdeploy.auto.tfvars.json
++script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
++TF_ROOT="$script_dir"
++if [ ! -f "$TF_ROOT/main.tf" ]; then
++    search_dir="$TF_ROOT"
++    while [ "$search_dir" != "/" ]; do
++        if [ -f "$search_dir/main.tf" ]; then
++            TF_ROOT="$search_dir"
++            break
++        fi
++        search_dir="$(dirname "$search_dir")"
++    done
++fi
++
++GENERATED_DIR="$TF_ROOT/generated"
++mkdir -p "$GENERATED_DIR" || error_exit "Failed to create generated directory: $GENERATED_DIR"
++TFVARS_FILE="$GENERATED_DIR/thinkdeploy.auto.tfvars.json"
+ 
+ build_tfvars_file() {
+     # Build JSON object for all terraform variables
+@@ -1605,6 +1662,12 @@ build_tfvars_file() {
+     if ! echo "$TFVARS_JSON" | jq . > "$TFVARS_FILE" 2>/dev/null; then
+         error_exit "Failed to create valid tfvars JSON file"
+     fi
+     
++    # Set secure permissions (contains secrets)
++    chmod 600 "$TFVARS_FILE" || warning "Failed to set permissions on tfvars file"
++    
++    # Write pointer file for easy reference
++    echo "$TFVARS_FILE" > "$TF_ROOT/.thinkdeploy_last_tfvars" 2>/dev/null || true
++    
+     log "Created tfvars file: $TFVARS_FILE"
+     
+     # If Deploy All was selected, deploy immediately
+@@ -1710,6 +1773,50 @@ run_terraform_deploy() {
+     [ -f "$TF_ROOT/main.tf" ] || error_exit "main.tf not found in TF_ROOT=$TF_ROOT"
+     
+     log "=== RUN_TERRAFORM_DEPLOY START ==="
++    
++    # SAFETY GUARD: Prevent accidental destroy when vars are empty
++    log "Running safety checks before deployment..."
++    
++    # Check if state has module.vm resources but tfvars has empty vms
++    if [ -f "$TF_ROOT/.terraform/terraform.tfstate" ] || [ -f "$TF_ROOT/terraform.tfstate" ]; then
++        local state_has_vms=false
++        local tfvars_has_vms=false
++        
++        # Check state for module.vm resources
++        if terraform -chdir="$TF_ROOT" state list 2>/dev/null | grep -q "^module\.vm\["; then
++            state_has_vms=true
++            log "State contains module.vm resources"
++        fi
++        
++        # Check tfvars for vms
++        local vms_count
++        vms_count=$(jq -r '.vms // {} | keys | length' "$tfvars_file" 2>/dev/null || echo "0")
++        if [ "$vms_count" -gt 0 ]; then
++            tfvars_has_vms=true
++            log "Tfvars contains $vms_count VM(s)"
++        else
++            log "Tfvars has 0 VMs (vms: {})"
++        fi
++        
++        # Safety check: state has VMs but tfvars doesn't
++        if [ "$state_has_vms" = "true" ] && [ "$tfvars_has_vms" = "false" ]; then
++            error_exit "SAFETY GUARD: Terraform state contains module.vm resources, but tfvars file has empty vms: {}." \
++                "  This would destroy existing VMs!" \
++                "  Tfvars file: $tfvars_file" \
++                "  If you intend to destroy resources, set: THINKDEPLOY_ALLOW_DESTROY=true" \
++                "  Otherwise, ensure your tfvars file includes the VMs you want to keep."
++        fi
++        
++        # Additional check: if Deploy All was selected and we computed VMs but tfvars is empty
++        if [ "${DEPLOY_ALL_SELECTED:-false}" = "true" ]; then
++            # This check is done earlier in build_tfvars_file, but double-check here
++            local enabled_vms_in_tfvars
++            enabled_vms_in_tfvars=$(jq -r '.vms // {} | to_entries | map(select(.value.enabled==true)) | length' "$tfvars_file" 2>/dev/null || echo "0")
++            if [ "$enabled_vms_in_tfvars" -eq 0 ] && [ -n "${vms:-}" ]; then
++                warning "Deploy All selected but tfvars has 0 enabled VMs. Checking if other resources exist..."
++                local has_other_resources=false
++                if jq -e '.lxcs // {} | keys | length > 0' "$tfvars_file" >/dev/null 2>&1 || \
++                   jq -e '.storages // {} | keys | length > 0' "$tfvars_file" >/dev/null 2>&1 || \
++                   jq -e '.networking_config // {} | keys | length > 0' "$tfvars_file" >/dev/null 2>&1; then
++                    has_other_resources=true
++                fi
++                if [ "$has_other_resources" = "false" ]; then
++                    error_exit "Deploy All selected but no resources configured in tfvars file." \
++                        "  Tfvars file: $tfvars_file" \
++                        "  This appears to be a configuration error."
++                fi
++            fi
++        fi
++    fi
++    
++    # Check THINKDEPLOY_ALLOW_DESTROY if we're about to destroy
++    if [ "${THINKDEPLOY_ALLOW_DESTROY:-}" != "true" ] && [ "$state_has_vms" = "true" ] && [ "$tfvars_has_vms" = "false" ]; then
++        error_exit "THINKDEPLOY_ALLOW_DESTROY not set. Refusing to destroy resources."
++    fi
++    
+     log "TF_ROOT=$TF_ROOT"
+     log "TFVARS_FILE=$tfvars_file"
+     local enabled_vms_log
+@@ -1841,6 +1940,20 @@ run_terraform_deploy() {
+     ) || error_exit "Terraform deploy failed"
+     
+     log "=== RUN_TERRAFORM_DEPLOY COMPLETE ==="
++    
++    # After successful deployment, keep tfvars file but ensure secure permissions
++    if [ -f "$tfvars_file" ]; then
++        chmod 600 "$tfvars_file" || warning "Failed to set permissions on tfvars file"
++        log "Tfvars file kept with secure permissions: $tfvars_file"
++        log "WARNING: Tfvars file contains sensitive data (SSH keys, passwords). Keep it secure."
++    fi
++    
+     return 0
+ }
+ 
+@@ -1995,6 +2108,9 @@ log "Entering main configuration menu..."
+ # Main loop
+ # Note: Proxmox connection variables should be set via environment variables or terraform.tfvars
+ # (pm_api_url, pm_user, pm_password, pm_ssh_host, pm_ssh_user, pm_ssh_private_key_path)
++
++# Validate Proxmox connection before proceeding
++validate_proxmox_connection
++
+ vms=""
+ lxcs=""
+ backup_jobs=""
+@@ -2296,6 +2412,20 @@ else
+     echo "📋 Configuration saved. Run this command when ready:" 1>&2
+     echo "terraform apply -var-file=\"$TFVARS_FILE\" -auto-approve" 1>&2
+     echo "" 1>&2
++    echo "📋 Or use these commands:" 1>&2
++    echo "  terraform plan -var-file=\"$TFVARS_FILE\"" 1>&2
++    echo "  terraform apply -var-file=\"$TFVARS_FILE\" -auto-approve" 1>&2
++    echo "" 1>&2
++    echo "📋 Persistent tfvars location: $TFVARS_FILE" 1>&2
++    echo "📋 Last tfvars pointer: $TF_ROOT/.thinkdeploy_last_tfvars" 1>&2
++    if [ -f "$TF_ROOT/.thinkdeploy_last_tfvars" ]; then
++        LAST_TFVARS=$(cat "$TF_ROOT/.thinkdeploy_last_tfvars" 2>/dev/null || echo "")
++        if [ -n "$LAST_TFVARS" ] && [ "$LAST_TFVARS" != "$TFVARS_FILE" ]; then
++            echo "ℹ️  Previous tfvars file: $LAST_TFVARS" 1>&2
++        fi
++    fi
++    echo "" 1>&2
+     echo "📋 Tfvars file location: $TFVARS_FILE" 1>&2
+     echo "" 1>&2
+     echo "📋 Log file: $LOG_FILE" 1>&2
+@@ -2303,6 +2433,20 @@ fi
+ 
+ log "Script execution completed"
++
++# Final summary with rerun commands
++if [ -f "$TFVARS_FILE" ]; then
++    echo "" 1>&2
++    echo "╔══════════════════════════════════════════════════════════════╗" 1>&2
++    echo "║                    Deployment Summary                        ║" 1>&2
++    echo "╚══════════════════════════════════════════════════════════════╝" 1>&2
++    echo "" 1>&2
++    echo "📋 Persistent tfvars file: $TFVARS_FILE" 1>&2
++    echo "📋 Last tfvars pointer: $TF_ROOT/.thinkdeploy_last_tfvars" 1>&2
++    echo "" 1>&2
++    echo "🔄 Rerun commands:" 1>&2
++    echo "  terraform plan -var-file=\"$TFVARS_FILE\"" 1>&2
++    echo "  terraform apply -var-file=\"$TFVARS_FILE\" -auto-approve" 1>&2
++    echo "" 1>&2
++    log "Tfvars file location: $TFVARS_FILE (logged for reference)"
++fi

@@ -1,0 +1,16 @@
+{
+  "daily-backup": {
+    "vms": ["100", "101"],
+    "storage": "local-lvm",
+    "schedule": "0 2 * * *",
+    "mode": "snapshot",
+    "maxfiles": 7
+  },
+  "weekly-backup": {
+    "vms": ["100", "101", "200"],
+    "storage": "nfs-backup",
+    "schedule": "0 3 * * 0",
+    "mode": "stop",
+    "maxfiles": 4
+  }
+}
