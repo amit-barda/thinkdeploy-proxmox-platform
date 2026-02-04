@@ -522,9 +522,24 @@ configure_compute() {
             storage=${storage:-local-lvm}
             read -p "OS template [local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst]: " ostemplate
             ostemplate=${ostemplate:-local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst}
+            read -p "VLAN ID (optional, press Enter to skip) []: " vlan_id
+            vlan_id=${vlan_id:-}
             
-            lxc_config="\"$lxc_id\":{\"node\":\"$node\",\"vmid\":$ctid,\"cores\":$cores,\"memory\":$memory,\"rootfs\":\"$rootfs\",\"storage\":\"$storage\",\"ostemplate\":\"$ostemplate\",\"enabled\":true}"
-            log "LXC configured: $lxc_id (ID: $ctid)" 1>&2
+            # Build LXC config with optional VLAN
+            if [ -n "$vlan_id" ] && [ "$vlan_id" != "" ]; then
+                # Validate VLAN ID is a number
+                if [[ "$vlan_id" =~ ^[0-9]+$ ]]; then
+                    lxc_config="\"$lxc_id\":{\"node\":\"$node\",\"vmid\":$ctid,\"cores\":$cores,\"memory\":$memory,\"rootfs\":\"$rootfs\",\"storage\":\"$storage\",\"ostemplate\":\"$ostemplate\",\"vlan\":$vlan_id,\"enabled\":true}"
+                    log "LXC configured: $lxc_id (ID: $ctid, VLAN: $vlan_id)" 1>&2
+                else
+                    warning "Invalid VLAN ID '$vlan_id' (must be a number). Skipping VLAN configuration." 1>&2
+                    lxc_config="\"$lxc_id\":{\"node\":\"$node\",\"vmid\":$ctid,\"cores\":$cores,\"memory\":$memory,\"rootfs\":\"$rootfs\",\"storage\":\"$storage\",\"ostemplate\":\"$ostemplate\",\"enabled\":true}"
+                    log "LXC configured: $lxc_id (ID: $ctid)" 1>&2
+                fi
+            else
+                lxc_config="\"$lxc_id\":{\"node\":\"$node\",\"vmid\":$ctid,\"cores\":$cores,\"memory\":$memory,\"rootfs\":\"$rootfs\",\"storage\":\"$storage\",\"ostemplate\":\"$ostemplate\",\"enabled\":true}"
+                log "LXC configured: $lxc_id (ID: $ctid)" 1>&2
+            fi
             echo "$lxc_config"
             ;;
         3)
@@ -742,8 +757,35 @@ configure_networking() {
             stp=${stp:-N}
             read -p "MTU [1500]: " mtu
             mtu=${mtu:-1500}
+            read -p "IPv4/CIDR (e.g., 192.168.1.13/24) []: " ipv4_cidr
+            ipv4_cidr=${ipv4_cidr:-}
+            read -p "Gateway (IPv4) []: " ipv4_gateway
+            ipv4_gateway=${ipv4_gateway:-}
+            read -p "IPv6/CIDR []: " ipv6_cidr
+            ipv6_cidr=${ipv6_cidr:-}
+            read -p "Gateway (IPv6) []: " ipv6_gateway
+            ipv6_gateway=${ipv6_gateway:-}
+            read -p "Autostart? (y/N) [N]: " autostart
+            autostart=${autostart:-N}
+            read -p "VLAN aware? (y/N) [N]: " vlan_aware
+            vlan_aware=${vlan_aware:-N}
+            read -p "Comment []: " comment
+            comment=${comment:-}
             
-            bridge_config="\"$bridge_name\":{\"iface\":\"$iface\",\"stp\":\"$stp\",\"mtu\":$mtu}"
+            # Build bridge config JSON
+            bridge_config="\"$bridge_name\":{"
+            bridge_config="${bridge_config}\"iface\":\"$iface\","
+            bridge_config="${bridge_config}\"stp\":\"$stp\","
+            bridge_config="${bridge_config}\"mtu\":$mtu"
+            [ -n "$ipv4_cidr" ] && bridge_config="${bridge_config},\"ipv4_cidr\":\"$ipv4_cidr\""
+            [ -n "$ipv4_gateway" ] && bridge_config="${bridge_config},\"ipv4_gateway\":\"$ipv4_gateway\""
+            [ -n "$ipv6_cidr" ] && bridge_config="${bridge_config},\"ipv6_cidr\":\"$ipv6_cidr\""
+            [ -n "$ipv6_gateway" ] && bridge_config="${bridge_config},\"ipv6_gateway\":\"$ipv6_gateway\""
+            bridge_config="${bridge_config},\"autostart\":\"$autostart\""
+            bridge_config="${bridge_config},\"vlan_aware\":\"$vlan_aware\""
+            [ -n "$comment" ] && bridge_config="${bridge_config},\"comment\":\"$comment\""
+            bridge_config="${bridge_config}}"
+            
             log "Bridge configured: $bridge_name" 1>&2
             echo "bridge:$bridge_config"
             ;;
@@ -755,9 +797,43 @@ configure_networking() {
             read -p "Bridge [vmbr0]: " bridge
             bridge=${bridge:-vmbr0}
             
+            # Validate VLAN ID range (1-4094)
+            if [ "$vlan_id" -lt 1 ] || [ "$vlan_id" -gt 4094 ]; then
+                warning "Invalid VLAN ID: $vlan_id (must be 1-4094). Using default 100." 1>&2
+                vlan_id=100
+            fi
+            
             vlan_config="{\"id\":$vlan_id,\"name\":\"$vlan_name\",\"bridge\":\"$bridge\"}"
-            log "VLAN configured: $vlan_id" 1>&2
+            log "VLAN configured: $vlan_id (bridge: $bridge)" 1>&2
+            log "Note: VLANs in Proxmox work via VLAN-aware bridges + VM/LXC NIC tags." 1>&2
+            log "The bridge $bridge will be configured as VLAN-aware during Terraform apply." 1>&2
+            log "To use this VLAN, set net0 tag=$vlan_id when creating VMs/LXCs." 1>&2
             echo "vlan:$vlan_config"
+            ;;
+        3)
+            read -p "SDN zone name (alphanumeric only, no hyphens) [sdnzone1]: " sdn_zone
+            sdn_zone=${sdn_zone:-sdnzone1}
+            # Validate zone name: alphanumeric only, no hyphens or special chars
+            if [[ ! "$sdn_zone" =~ ^[a-zA-Z0-9]+$ ]]; then
+                warning "Invalid zone name: $sdn_zone (must be alphanumeric only). Using default sdnzone1." 1>&2
+                sdn_zone="sdnzone1"
+            fi
+            read -p "SDN type (vlan/vxlan/evpn/simple/qinq/faucet) [vlan]: " sdn_type
+            sdn_type=${sdn_type:-vlan}
+            # Validate SDN type
+            if [[ ! "$sdn_type" =~ ^(vlan|vxlan|evpn|simple|qinq|faucet)$ ]]; then
+                warning "Invalid SDN type: $sdn_type (must be one of: vlan, vxlan, evpn, simple, qinq, faucet). Using default vlan." 1>&2
+                sdn_type="vlan"
+            fi
+            read -p "Bridge [vmbr0]: " sdn_bridge
+            sdn_bridge=${sdn_bridge:-vmbr0}
+            read -p "VLAN ID (for vlan type) [100]: " sdn_vlan
+            sdn_vlan=${sdn_vlan:-100}
+            
+            sdn_config="{\"name\":\"$sdn_zone\",\"type\":\"$sdn_type\",\"bridge\":\"$sdn_bridge\",\"vlan\":$sdn_vlan}"
+            log "SDN zone configured: $sdn_zone" 1>&2
+            
+            echo "sdn:$sdn_config"
             ;;
         4)
             read -p "Rule name [allow-ssh]: " rule_name
@@ -772,10 +848,28 @@ configure_networking() {
             proto=${proto:-tcp}
             read -p "Destination port [22]: " dport
             dport=${dport:-22}
+            read -p "Type (in/out) [in]: " fw_type
+            fw_type=${fw_type:-in}
             
-            fw_config="{\"name\":\"$rule_name\",\"action\":\"$action\",\"source\":\"$source\",\"dest\":\"$dest\",\"proto\":\"$proto\",\"dport\":$dport}"
+            fw_config="{\"name\":\"$rule_name\",\"action\":\"$action\",\"source\":\"$source\",\"dest\":\"$dest\",\"proto\":\"$proto\",\"dport\":$dport,\"type\":\"$fw_type\"}"
             log "Firewall rule configured: $rule_name" 1>&2
+            
             echo "firewall:$fw_config"
+            ;;
+        5)
+            read -p "NAT rule name [nat-outbound]: " nat_name
+            nat_name=${nat_name:-nat-outbound}
+            read -p "Source IP/CIDR [192.168.1.0/24]: " nat_source
+            nat_source=${nat_source:-192.168.1.0/24}
+            read -p "Outbound interface [vmbr0]: " nat_iface
+            nat_iface=${nat_iface:-vmbr0}
+            read -p "Enable SNAT? (y/N) [Y]: " nat_snat
+            nat_snat=${nat_snat:-Y}
+            
+            nat_config="{\"name\":\"$nat_name\",\"source\":\"$nat_source\",\"interface\":\"$nat_iface\",\"snat\":\"$nat_snat\"}"
+            log "NAT rule configured: $nat_name" 1>&2
+            
+            echo "nat:$nat_config"
             ;;
         6)
             read -p "Bond name [bond0]: " bond_name
@@ -787,6 +881,7 @@ configure_networking() {
             
             bond_config="{\"name\":\"$bond_name\",\"interfaces\":\"$interfaces\",\"mode\":\"$bond_mode\"}"
             log "Bond configured: $bond_name" 1>&2
+            
             echo "bond:$bond_config"
             ;;
         7)
@@ -797,6 +892,7 @@ configure_networking() {
             
             mtu_config="{\"interface\":\"$iface\",\"mtu\":$mtu}"
             log "MTU configured: $iface = $mtu" 1>&2
+            
             echo "mtu:$mtu_config"
             ;;
         *)
@@ -1575,7 +1671,7 @@ if [ -n "$cluster_configs" ]; then
     PREV_LENGTH=0
     
     while [ -n "$temp_configs" ] && [ $LOOP_COUNT -lt $MAX_LOOPS ]; do
-        ((LOOP_COUNT++))
+        LOOP_COUNT=$((LOOP_COUNT + 1))
         
         # Trim leading whitespace and commas
         temp_configs=$(echo "$temp_configs" | sed 's/^[[:space:],]*//')
@@ -2178,7 +2274,7 @@ build_tfvars_file() {
         local PREV_LENGTH=0
         
         while [ -n "$temp_configs" ] && [ $LOOP_COUNT -lt $MAX_LOOPS ]; do
-            ((LOOP_COUNT++))
+            LOOP_COUNT=$((LOOP_COUNT + 1))
             temp_configs=$(echo "$temp_configs" | sed 's/^[[:space:],]*//')
             local CURRENT_LENGTH=${#temp_configs}
             if [ $CURRENT_LENGTH -eq $PREV_LENGTH ] && [ $CURRENT_LENGTH -gt 0 ]; then
@@ -2348,7 +2444,7 @@ build_tfvars_file() {
                 
                 if [ -n "$state_lxc_config" ]; then
                     # Extract LXC attributes from state triggers
-                    local state_lxc_node state_lxc_vmid state_lxc_cores state_lxc_memory state_lxc_rootfs state_lxc_storage state_lxc_ostemplate state_lxc_enabled
+                    local state_lxc_node state_lxc_vmid state_lxc_cores state_lxc_memory state_lxc_rootfs state_lxc_storage state_lxc_ostemplate state_lxc_vlan state_lxc_enabled
                     state_lxc_node=$(echo "$state_lxc_config" | grep -E '^\s+"node"\s+=' | awk '{print $3}' | tr -d '"' || echo "local")
                     state_lxc_vmid=$(echo "$state_lxc_config" | grep -E '^\s+"vmid"\s+=' | awk '{print $3}' | tr -d '"' || echo "")
                     state_lxc_cores=$(echo "$state_lxc_config" | grep -E '^\s+"cores"\s+=' | awk '{print $3}' | tr -d '"' || echo "2")
@@ -2356,6 +2452,7 @@ build_tfvars_file() {
                     state_lxc_rootfs=$(echo "$state_lxc_config" | grep -E '^\s+"rootfs"\s+=' | awk '{print $3}' | tr -d '"' || echo "local-lvm:8")
                     state_lxc_storage=$(echo "$state_lxc_config" | grep -E '^\s+"storage"\s+=' | awk '{print $3}' | tr -d '"' || echo "local-lvm")
                     state_lxc_ostemplate=$(echo "$state_lxc_config" | grep -E '^\s+"ostemplate"\s+=' | awk '{print $3}' | tr -d '"' || echo "")
+                    state_lxc_vlan=$(echo "$state_lxc_config" | grep -E '^\s+"vlan"\s+=' | awk '{print $3}' | tr -d '"' || echo "")
                     # enabled might not be in state triggers (default to true)
                     local state_lxc_enabled_raw
                     state_lxc_enabled_raw=$(echo "$state_lxc_config" | grep -E '^\s+"enabled"\s+=' | awk '{print $3}' | tr -d '"' || echo "")
@@ -2372,25 +2469,50 @@ build_tfvars_file() {
                         # Build LXC entry JSON with proper types
                         local existing_lxc_entry
                         local lxc_jq_exit_code
-                        existing_lxc_entry=$(jq -n \
-                            --arg node "$state_lxc_node" \
-                            --arg vmid_str "$state_lxc_vmid" \
-                            --arg cores_str "$state_lxc_cores" \
-                            --arg memory_str "$state_lxc_memory" \
-                            --arg rootfs "$state_lxc_rootfs" \
-                            --arg storage "$state_lxc_storage" \
-                            --arg ostemplate "$state_lxc_ostemplate" \
-                            --arg enabled_str "$state_lxc_enabled" \
-                            '{
-                                node: $node,
-                                vmid: ($vmid_str | tonumber),
-                                cores: ($cores_str | tonumber),
-                                memory: ($memory_str | tonumber),
-                                rootfs: $rootfs,
-                                storage: $storage,
-                                ostemplate: $ostemplate,
-                                enabled: (if $enabled_str == "true" then true else (if $enabled_str == "false" then false else true end) end)
-                            }' 2>&1)
+                        # Build jq command with optional VLAN
+                        if [ -n "$state_lxc_vlan" ] && [ "$state_lxc_vlan" != "" ] && [[ "$state_lxc_vlan" =~ ^[0-9]+$ ]]; then
+                            existing_lxc_entry=$(jq -n \
+                                --arg node "$state_lxc_node" \
+                                --arg vmid_str "$state_lxc_vmid" \
+                                --arg cores_str "$state_lxc_cores" \
+                                --arg memory_str "$state_lxc_memory" \
+                                --arg rootfs "$state_lxc_rootfs" \
+                                --arg storage "$state_lxc_storage" \
+                                --arg ostemplate "$state_lxc_ostemplate" \
+                                --arg vlan_str "$state_lxc_vlan" \
+                                --arg enabled_str "$state_lxc_enabled" \
+                                '{
+                                    node: $node,
+                                    vmid: ($vmid_str | tonumber),
+                                    cores: ($cores_str | tonumber),
+                                    memory: ($memory_str | tonumber),
+                                    rootfs: $rootfs,
+                                    storage: $storage,
+                                    ostemplate: $ostemplate,
+                                    vlan: ($vlan_str | tonumber),
+                                    enabled: (if $enabled_str == "true" then true else (if $enabled_str == "false" then false else true end) end)
+                                }' 2>&1)
+                        else
+                            existing_lxc_entry=$(jq -n \
+                                --arg node "$state_lxc_node" \
+                                --arg vmid_str "$state_lxc_vmid" \
+                                --arg cores_str "$state_lxc_cores" \
+                                --arg memory_str "$state_lxc_memory" \
+                                --arg rootfs "$state_lxc_rootfs" \
+                                --arg storage "$state_lxc_storage" \
+                                --arg ostemplate "$state_lxc_ostemplate" \
+                                --arg enabled_str "$state_lxc_enabled" \
+                                '{
+                                    node: $node,
+                                    vmid: ($vmid_str | tonumber),
+                                    cores: ($cores_str | tonumber),
+                                    memory: ($memory_str | tonumber),
+                                    rootfs: $rootfs,
+                                    storage: $storage,
+                                    ostemplate: $ostemplate,
+                                    enabled: (if $enabled_str == "true" then true else (if $enabled_str == "false" then false else true end) end)
+                                }' 2>&1)
+                        fi
                         lxc_jq_exit_code=$?
                         
                         # Check if jq succeeded and output is valid JSON
@@ -2564,9 +2686,177 @@ build_tfvars_file() {
         TFVARS_JSON="$TFVARS_JSON\"storages\":{},"
     fi
     
-    # Add networking
+    # Add networking - parse networking_configs (bridge:{...},vlan:{...},firewall:{...},bond:{...})
+    local NETWORKING_JSON="{}"
     if [ -n "$networking_configs" ]; then
-        TFVARS_JSON="$TFVARS_JSON\"networking_config\":{$networking_configs},"
+        # Trim leading/trailing whitespace and newlines from networking_configs
+        local temp_networking=$(echo "$networking_configs" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr -d '\n\r')
+        local NET_LOOP_COUNT=0
+        local NET_MAX_LOOPS=100
+        local NET_PREV_LENGTH=0
+        
+        while [ -n "$temp_networking" ] && [ $NET_LOOP_COUNT -lt $NET_MAX_LOOPS ]; do
+            NET_LOOP_COUNT=$((NET_LOOP_COUNT + 1))
+            temp_networking=$(echo "$temp_networking" | sed 's/^[[:space:],]*//')
+            local NET_CURRENT_LENGTH=${#temp_networking}
+            if [ $NET_CURRENT_LENGTH -eq $NET_PREV_LENGTH ] && [ $NET_CURRENT_LENGTH -gt 0 ]; then
+                break
+            fi
+            NET_PREV_LENGTH=$NET_CURRENT_LENGTH
+            
+            if [[ "$temp_networking" =~ ^([^:]+):(.+)$ ]]; then
+                local NET_KEY="${BASH_REMATCH[1]}"
+                local NET_REST="${BASH_REMATCH[2]}"
+                # Trim whitespace and newlines from KEY
+                NET_KEY=$(echo "$NET_KEY" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr -d '\n\r')
+                
+                # Handle two formats:
+                # 1. bridge:{...} - direct JSON object
+                # 2. bridge:"name":{...} - quoted name followed by JSON object
+                local NET_VALUE=""
+                local NET_REMAINING=""
+                
+                # Check if REST starts with a quoted string (format: "name":{...})
+                if [[ "$NET_REST" =~ ^\"([^\"]+)\":(.+)$ ]]; then
+                    # Format: "name":{...} - extract the JSON part after the quoted name
+                    local QUOTED_NAME="${BASH_REMATCH[1]}"
+                    local JSON_PART="${BASH_REMATCH[2]}"
+                    
+                    # Extract JSON object from JSON_PART
+                    if [[ "$JSON_PART" =~ ^\{ ]]; then
+                        local NET_DEPTH=0
+                        local JSON_VALUE=""
+                        local JSON_PART_LEN=${#JSON_PART}
+                        local i=0
+                        while [ $i -lt $JSON_PART_LEN ]; do
+                            local NET_CHAR="${JSON_PART:$i:1}"
+                            JSON_VALUE="$JSON_VALUE$NET_CHAR"
+                            if [ "$NET_CHAR" = "{" ]; then
+                                NET_DEPTH=$((NET_DEPTH + 1))
+                            elif [ "$NET_CHAR" = "}" ]; then
+                                NET_DEPTH=$((NET_DEPTH - 1))
+                                if [ $NET_DEPTH -eq 0 ]; then
+                                    break
+                                fi
+                            fi
+                            i=$((i + 1))
+                        done
+                        NET_REMAINING="${JSON_PART:${#JSON_VALUE}}"
+                        # Build the full JSON with the name as key: {"name":{...}}
+                        NET_VALUE="{\"$QUOTED_NAME\":$JSON_VALUE}"
+                    fi
+                elif [[ "$NET_REST" =~ ^\{ ]]; then
+                    # Format: {...} - direct JSON object
+                    local NET_DEPTH=0
+                    local NET_REST_LEN=${#NET_REST}
+                    local i=0
+                    while [ $i -lt $NET_REST_LEN ]; do
+                        local NET_CHAR="${NET_REST:$i:1}"
+                        NET_VALUE="$NET_VALUE$NET_CHAR"
+                        if [ "$NET_CHAR" = "{" ]; then
+                            NET_DEPTH=$((NET_DEPTH + 1))
+                        elif [ "$NET_CHAR" = "}" ]; then
+                            NET_DEPTH=$((NET_DEPTH - 1))
+                            if [ $NET_DEPTH -eq 0 ]; then
+                                break
+                            fi
+                        fi
+                        i=$((i + 1))
+                    done
+                    NET_REMAINING="${NET_REST:${#NET_VALUE}}"
+                else
+                    break
+                fi
+                
+                if [ -n "$NET_REMAINING" ]; then
+                    temp_networking=$(echo "$NET_REMAINING" | sed 's/^[[:space:],]*//')
+                fi
+                    
+                if [ -n "$NET_VALUE" ] && echo "$NET_VALUE" | jq . > /dev/null 2>&1; then
+                        case "$NET_KEY" in
+                            bridge)
+                                # bridge_config format is: "bridge_name":{...}
+                                # So NET_VALUE already contains the bridge name as key
+                                if echo "$NET_VALUE" | jq -e 'type == "object"' > /dev/null 2>&1; then
+                                    NETWORKING_JSON=$(echo "$NETWORKING_JSON" | jq ".bridges = (.bridges // {}) + $NET_VALUE" 2>/dev/null || echo "$NETWORKING_JSON")
+                                    local BRIDGE_NAME=$(echo "$NET_VALUE" | jq -r 'keys[0] // ""' 2>/dev/null)
+                                    log "Processed bridge config: $BRIDGE_NAME"
+                                fi
+                                ;;
+                            vlan)
+                                local VLAN_ID=$(echo "$NET_VALUE" | jq -r '.id // ""' 2>/dev/null)
+                                if [ -n "$VLAN_ID" ]; then
+                                    NETWORKING_JSON=$(echo "$NETWORKING_JSON" | jq ".vlans = (.vlans // {}) + {\"vlan-$VLAN_ID\": $NET_VALUE}" 2>/dev/null || echo "$NETWORKING_JSON")
+                                    log "Processed VLAN config: $VLAN_ID"
+                                fi
+                                ;;
+                            firewall)
+                                local FW_NAME=$(echo "$NET_VALUE" | jq -r '.name // ""' 2>/dev/null)
+                                if [ -n "$FW_NAME" ]; then
+                                    NETWORKING_JSON=$(echo "$NETWORKING_JSON" | jq ".firewall_rules = (.firewall_rules // {}) + {\"$FW_NAME\": $NET_VALUE}" 2>/dev/null || echo "$NETWORKING_JSON")
+                                    log "Processed firewall rule: $FW_NAME"
+                                fi
+                                ;;
+                            sdn)
+                                local SDN_NAME=$(echo "$NET_VALUE" | jq -r '.name // ""' 2>/dev/null)
+                                if [ -n "$SDN_NAME" ]; then
+                                    NETWORKING_JSON=$(echo "$NETWORKING_JSON" | jq ".sdns = (.sdns // {}) + {\"$SDN_NAME\": $NET_VALUE}" 2>/dev/null || echo "$NETWORKING_JSON")
+                                    log "Processed SDN config: $SDN_NAME"
+                                fi
+                                ;;
+                            nat)
+                                local NAT_NAME=$(echo "$NET_VALUE" | jq -r '.name // ""' 2>/dev/null)
+                                if [ -n "$NAT_NAME" ]; then
+                                    NETWORKING_JSON=$(echo "$NETWORKING_JSON" | jq ".nats = (.nats // {}) + {\"$NAT_NAME\": $NET_VALUE}" 2>/dev/null || echo "$NETWORKING_JSON")
+                                    log "Processed NAT config: $NAT_NAME"
+                                fi
+                                ;;
+                            bond)
+                                # bond_config format is: {"name":"bond0","interfaces":"enp3s0,enp4s0","mode":"802.3ad"}
+                                # Convert interfaces string to array for Terraform
+                                local BOND_NAME=$(echo "$NET_VALUE" | jq -r '.name // ""' 2>/dev/null)
+                                if [ -n "$BOND_NAME" ]; then
+                                    # Convert comma-separated interfaces string to JSON array
+                                    local INTERFACES_STR=$(echo "$NET_VALUE" | jq -r '.interfaces // ""' 2>/dev/null)
+                                    if [ -n "$INTERFACES_STR" ]; then
+                                        # Convert "enp3s0,enp4s0" to ["enp3s0","enp4s0"] using jq
+                                        local BOND_CONFIG=$(echo "$NET_VALUE" | jq --arg ifaces "$INTERFACES_STR" '{
+                                            interfaces: ($ifaces | split(",")),
+                                            mode: .mode
+                                        }' 2>/dev/null)
+                                        if [ -n "$BOND_CONFIG" ]; then
+                                            NETWORKING_JSON=$(echo "$NETWORKING_JSON" | jq ".bonds = (.bonds // {}) + {\"$BOND_NAME\": $BOND_CONFIG}" 2>/dev/null || echo "$NETWORKING_JSON")
+                                        else
+                                            NETWORKING_JSON=$(echo "$NETWORKING_JSON" | jq ".bonds = (.bonds // {}) + {\"$BOND_NAME\": $NET_VALUE}" 2>/dev/null || echo "$NETWORKING_JSON")
+                                        fi
+                                    else
+                                        NETWORKING_JSON=$(echo "$NETWORKING_JSON" | jq ".bonds = (.bonds // {}) + {\"$BOND_NAME\": $NET_VALUE}" 2>/dev/null || echo "$NETWORKING_JSON")
+                                    fi
+                                    log "Processed bond config: $BOND_NAME"
+                                fi
+                                ;;
+                            mtu)
+                                local MTU_INTERFACE=$(echo "$NET_VALUE" | jq -r '.interface // ""' 2>/dev/null)
+                                if [ -n "$MTU_INTERFACE" ]; then
+                                    NETWORKING_JSON=$(echo "$NETWORKING_JSON" | jq ".mtus = (.mtus // {}) + {\"$MTU_INTERFACE\": $NET_VALUE}" 2>/dev/null || echo "$NETWORKING_JSON")
+                                    log "Processed MTU config: $MTU_INTERFACE"
+                                fi
+                                ;;
+                        esac
+                else
+                    # NET_VALUE is empty or invalid JSON - skip this entry
+                    break
+                fi
+            else
+                # Pattern did not match - no more valid entries
+                break
+            fi
+        done
+    fi
+    
+    if [ "$NETWORKING_JSON" != "{}" ] && [ -n "$NETWORKING_JSON" ]; then
+        TFVARS_JSON="$TFVARS_JSON\"networking_config\":$NETWORKING_JSON,"
+        log "Added networking config to tfvars"
     else
         TFVARS_JSON="$TFVARS_JSON\"networking_config\":{},"
     fi

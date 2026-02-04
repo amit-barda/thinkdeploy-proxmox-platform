@@ -111,7 +111,7 @@ resource "null_resource" "autoscaling" {
         CONFIG_DIR="$INSTALL_PATH/config"
         mkdir -p "$CONFIG_DIR"
         
-        CONFIG_FILE="$CONFIG_DIR/${GROUP}.json"
+        CONFIG_FILE="$CONFIG_DIR/$${GROUP}.json"
         cat > "$CONFIG_FILE" <<CONFIG_EOF
 {
   "group": "$GROUP",
@@ -130,16 +130,16 @@ CONFIG_EOF
           if [ -n "$SERVICE_FILE" ]; then
             echo "Found service file: $SERVICE_FILE"
             # Copy service file and enable it
-            sudo cp "$SERVICE_FILE" "/etc/systemd/system/${TOOL_NAME}-${GROUP}.service" || {
+            sudo cp "$SERVICE_FILE" "/etc/systemd/system/$${TOOL_NAME}-$${GROUP}.service" || {
               echo "Warning: Failed to install service file (may need root)"
             }
             sudo systemctl daemon-reload || true
-            sudo systemctl enable "${TOOL_NAME}-${GROUP}.service" || true
-            echo "Service ${TOOL_NAME}-${GROUP} configured"
+            sudo systemctl enable "$${TOOL_NAME}-$${GROUP}.service" || true
+            echo "Service $${TOOL_NAME}-$${GROUP} configured"
           fi
         fi
         
-        echo "Installation completed for $TOOL_NAME"
+        echo "Installation completed for $$TOOL_NAME"
 INSTALL_EOF
       )
       

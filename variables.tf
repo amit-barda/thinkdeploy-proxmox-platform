@@ -76,6 +76,7 @@ variable "lxcs" {
     rootfs     = string
     storage    = string
     ostemplate = optional(string, "local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst")
+    vlan       = optional(number, null)
     enabled    = optional(bool, true)
   }))
   default = {}
@@ -106,8 +107,24 @@ variable "storages" {
 # Networking configuration
 variable "networking_config" {
   description = "Networking configuration"
-  type        = map(any)
-  default     = {}
+  type = object({
+    bridges        = optional(map(any), {})
+    vlans          = optional(map(any), {})
+    firewall_rules = optional(map(any), {})
+    bonds          = optional(map(any), {})
+    sdns           = optional(map(any), {})
+    nats           = optional(map(any), {})
+    mtus           = optional(map(any), {})
+  })
+  default = {
+    bridges        = {}
+    vlans          = {}
+    firewall_rules = {}
+    bonds          = {}
+    sdns           = {}
+    nats           = {}
+    mtus           = {}
+  }
 }
 
 # Security configuration

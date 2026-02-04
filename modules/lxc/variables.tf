@@ -55,3 +55,9 @@ variable "pm_ssh_private_key_path" {
   description = "Path to SSH private key"
   type        = string
 }
+
+variable "vlan" {
+  description = "VLAN ID for network interface (optional)"
+  type        = number
+  default     = null
+}

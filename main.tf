@@ -57,6 +57,7 @@ module "lxc" {
   rootfs     = each.value.rootfs
   storage    = each.value.storage
   ostemplate = try(each.value.ostemplate, "local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst")
+  vlan       = try(each.value.vlan, null)
   enabled    = each.value.enabled
 
   pm_ssh_host             = var.pm_ssh_host
@@ -90,6 +91,9 @@ module "networking" {
   vlans          = try(var.networking_config.vlans, {})
   firewall_rules = try(var.networking_config.firewall_rules, {})
   bonds          = try(var.networking_config.bonds, {})
+  sdns           = try(var.networking_config.sdns, {})
+  nats           = try(var.networking_config.nats, {})
+  mtus           = try(var.networking_config.mtus, {})
 
   pm_ssh_host             = var.pm_ssh_host
   pm_ssh_user             = var.pm_ssh_user

@@ -1,4 +1,4 @@
-2# VM management using pvesh CLI
+# VM management using pvesh CLI
 resource "null_resource" "vm" {
   count = var.enabled ? 1 : 0
 
@@ -13,7 +13,7 @@ resource "null_resource" "vm" {
     pm_ssh_host = var.pm_ssh_host
     pm_ssh_user = var.pm_ssh_user
     pm_ssh_key  = var.pm_ssh_private_key_path
-4 cat /root/thinkdeploy-proxmox-platform/generated/thinkdeploy.auto.tfvars.json | jq '.autoscaling_config'l    force_run   = var.force_run
+    force_run   = var.force_run
   }
 
   provisioner "local-exec" {

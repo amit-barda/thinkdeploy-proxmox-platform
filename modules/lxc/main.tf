@@ -10,6 +10,7 @@ resource "null_resource" "lxc" {
     rootfs      = var.rootfs
     storage     = var.storage
     ostemplate  = var.ostemplate
+    vlan        = var.vlan != null ? tostring(var.vlan) : ""
     pm_ssh_host = var.pm_ssh_host
     pm_ssh_user = var.pm_ssh_user
     pm_ssh_key  = var.pm_ssh_private_key_path
@@ -103,8 +104,15 @@ resource "null_resource" "lxc" {
       echo "  OSTemplate: ${self.triggers.ostemplate}"
       echo "  Storage: ${self.triggers.storage}"
       
+      # Build network configuration with optional VLAN
+      if [ -n "${self.triggers.vlan}" ] && [ "${self.triggers.vlan}" != "" ]; then
+        NET_CONFIG="name=eth0,bridge=vmbr0,tag=${self.triggers.vlan},ip=dhcp"
+      else
+        NET_CONFIG="name=eth0,bridge=vmbr0,ip=dhcp"
+      fi
+      
       # Build pvesh command
-      PVE_CMD="pvesh create /nodes/${self.triggers.node}/lxc --vmid ${self.triggers.vmid} --hostname lxc-${self.triggers.vmid} --ostemplate '${self.triggers.ostemplate}' --cores ${self.triggers.cores} --memory ${self.triggers.memory} --rootfs '$ROOTFS_PARAM' --net0 name=eth0,bridge=vmbr0,ip=dhcp"
+      PVE_CMD="pvesh create /nodes/${self.triggers.node}/lxc --vmid ${self.triggers.vmid} --hostname lxc-${self.triggers.vmid} --ostemplate '${self.triggers.ostemplate}' --cores ${self.triggers.cores} --memory ${self.triggers.memory} --rootfs '$ROOTFS_PARAM' --net0 '$NET_CONFIG'"
       echo "Executing: $PVE_CMD"
       
       # Run pvesh create command and capture both stdout and stderr

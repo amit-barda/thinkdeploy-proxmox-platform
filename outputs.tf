@@ -7,3 +7,8 @@ output "backup_job_ids" {
   description = "List of created backup job IDs"
   value       = [for job in module.backup_job : job.id]
 }
+
+output "lxc_vlans" {
+  description = "Map of LXC container VLAN IDs"
+  value       = { for k, v in module.lxc : k => v.vlan }
+}
