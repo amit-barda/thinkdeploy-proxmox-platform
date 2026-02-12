@@ -356,7 +356,7 @@ show_main_menu() {
     echo "     - Backup jobs, Schedules, Verification, Restore, Offsite sync" >&2
     echo "" >&2
     echo "  6. Security" >&2
-    echo "     - RBAC, API tokens, SSH hardening, Firewall policies, Audit" >&2
+    echo "     - RBAC, API tokens" >&2
     echo "" >&2
     echo "  7. Deploy All" >&2
     echo "     - Deploy all configured resources" >&2
@@ -1123,15 +1123,11 @@ configure_security() {
     echo "Security Options:" 1>&2
     echo "1. Configure RBAC" 1>&2
     echo "2. Create API token" 1>&2
-    echo "3. SSH hardening" 1>&2
-    echo "4. Firewall policies" 1>&2
-    echo "5. Audit logging" 1>&2
-    echo "6. Compliance profile" 1>&2
-    echo "7. Back to main menu" 1>&2
+    echo "3. Back to main menu" 1>&2
     echo "" 1>&2
     
-    read -p "Select option [7]: " security_option
-    security_option=${security_option:-7}
+    read -p "Select option [3]: " security_option
+    security_option=${security_option:-3}
     
     case "$security_option" in
         1)
@@ -1157,38 +1153,6 @@ configure_security() {
             token_config="{\"userid\":\"$userid\",\"tokenid\":\"$tokenid\",\"expire\":$expire}"
             log "API token configured: $tokenid" 1>&2
             echo "api_token:$token_config"
-            ;;
-        3)
-            read -p "Disable root login? (y/N) [y]: " no_root
-            no_root=${no_root:-y}
-            read -p "Disable password auth? (y/N) [y]: " no_password
-            no_password=${no_password:-y}
-            read -p "Max auth tries [3]: " max_tries
-            max_tries=${max_tries:-3}
-            
-            ssh_config="{\"permit_root_login\":\"$no_root\",\"password_auth\":\"$no_password\",\"max_tries\":$max_tries}"
-            log "SSH hardening configured" 1>&2
-            echo "ssh_hardening:$ssh_config"
-            ;;
-        4)
-            read -p "Firewall default policy [DROP]: " fw_policy
-            fw_policy=${fw_policy:-DROP}
-            read -p "Log level [info]: " log_level
-            log_level=${log_level:-info}
-            
-            fw_policy_config="{\"default_policy\":\"$fw_policy\",\"log_level\":\"$log_level\"}"
-            log "Firewall policy configured" 1>&2
-            echo "firewall_policy:$fw_policy_config"
-            ;;
-        5)
-            read -p "Enable audit logging? (y/N) [y]: " audit_enabled
-            audit_enabled=${audit_enabled:-y}
-            read -p "Retention days [90]: " retention
-            retention=${retention:-90}
-            
-            audit_config="{\"enabled\":\"$audit_enabled\",\"retention_days\":$retention}"
-            log "Audit logging configured" 1>&2
-            echo "audit:$audit_config"
             ;;
         *)
             echo ""
@@ -1319,6 +1283,8 @@ while true; do
         6)
             result=$(configure_security)
             if [ -n "$result" ]; then
+                # Trim newlines from result before appending
+                result=$(printf '%s' "$result" | sed 's/^[\r\n]*//;s/[\r\n]*$//')
                 if [ -z "$security_configs" ]; then
                     security_configs="$result"
                 else
@@ -1431,6 +1397,14 @@ if [ -n "$security_configs" ]; then
                 warning "Missing userid in RBAC config"
                 ((PARSING_ERRORS++))
                 continue
+            fi
+            # Convert privileges from comma-separated string to JSON array
+            PRIVILEGES_STR=$(echo "$RBAC_DATA" | jq -r '.privileges // ""' 2>/dev/null)
+            if [ -n "$PRIVILEGES_STR" ] && [ "$PRIVILEGES_STR" != "null" ]; then
+                # Convert comma-separated string to JSON array
+                PRIVILEGES_ARRAY=$(echo "$PRIVILEGES_STR" | jq -R 'split(",") | map(select(length > 0))' 2>/dev/null)
+                # Update RBAC_DATA with privileges as array
+                RBAC_DATA=$(echo "$RBAC_DATA" | jq --argjson arr "$PRIVILEGES_ARRAY" '.privileges = $arr' 2>/dev/null)
             fi
             NEW_JSON=$(echo "$SECURITY_JSON" | jq ".rbac.\"$USERID\" = $RBAC_DATA" 2>/dev/null)
             if [ $? -eq 0 ] && [ -n "$NEW_JSON" ]; then
@@ -2422,9 +2396,9 @@ build_tfvars_file() {
                         # Check if jq succeeded and output is valid JSON
                         if [ $jq_exit_code -eq 0 ] && [ -n "$existing_vm_entry" ] && echo "$existing_vm_entry" | jq -e . >/dev/null 2>&1; then
                             existing_vms_json=$(echo "$existing_vms_json" | jq ". + {\"$state_vm\": $existing_vm_entry}" 2>/dev/null || echo "$existing_vms_json")
-                            log "Preserved existing VM from state: $state_vm (VMID: $state_vmid)" agent log
+                            log "Preserved existing VM from state: $state_vm (VMID: $state_vmid)"
                         else
-                            warning "Failed to build VM entry for $state_vm from state (jq exit: $jq_exit_code, output: ${existing_vm_entry:0:100}), skipping preservation" agent log
+                            warning "Failed to build VM entry for $state_vm from state (jq exit: $jq_exit_code, output: ${existing_vm_entry:0:100}), skipping preservation"
                         fi
                     fi
                 fi
@@ -2861,9 +2835,153 @@ build_tfvars_file() {
         TFVARS_JSON="$TFVARS_JSON\"networking_config\":{},"
     fi
     
-    # Add security config (already in JSON format from earlier parsing)
-    if [ -n "$security_configs" ] && [ -n "${SECURITY_JSON:-}" ]; then
-        TFVARS_JSON="$TFVARS_JSON\"security_config\":$SECURITY_JSON,"
+    # Add security config - parse if not already parsed
+    if [ -n "$security_configs" ]; then
+        # If SECURITY_JSON was already created by old code, use it
+        if [ -n "${SECURITY_JSON:-}" ] && echo "${SECURITY_JSON:-}" | jq -e . >/dev/null 2>&1; then
+            TFVARS_JSON="$TFVARS_JSON\"security_config\":${SECURITY_JSON},"
+            log "Using pre-parsed security_config JSON"
+        else
+            # Parse security configs (rbac:{...},api_token:{...})
+            # Convert format from "rbac:{...},api_token:{...}" to proper JSON structure
+            # Note: Cannot use IFS=',' because JSON may contain commas inside values
+            # Instead, parse by finding patterns like "rbac:{...}" or "api_token:{...}"
+            local SECURITY_JSON_LOCAL='{"api_tokens":{},"rbac":{}}'
+            
+            # Parse configs by finding patterns (rbac: or api_token: followed by JSON)
+            # Use a while loop to extract each config pattern
+            local TEMP_CONFIGS="$security_configs"
+            # Trim leading/trailing whitespace and newlines
+            # Remove all newlines/carriage returns first, then trim spaces
+            TEMP_CONFIGS=$(printf '%s' "$TEMP_CONFIGS" | tr -d '\n\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            local CONFIGS_ARRAY=()
+            
+            # Simple parser: find "rbac:" or "api_token:" followed by balanced braces
+            local LOOP_COUNT=0
+            while [ -n "$TEMP_CONFIGS" ] && [ $LOOP_COUNT -lt 10 ]; do
+                LOOP_COUNT=$((LOOP_COUNT + 1))
+                
+                # Try to find next rbac: or api_token: pattern
+                if [[ "$TEMP_CONFIGS" =~ ^(rbac:|api_token:)(.*)$ ]]; then
+                    local PREFIX="${BASH_REMATCH[1]}"
+                    local REST="${BASH_REMATCH[2]}"
+                    
+                    # Find the matching closing brace for the JSON object
+                    local JSON_START=0
+                    local BRACE_COUNT=0
+                    local JSON_END=-1
+                    
+                    for ((i=0; i<${#REST}; i++)); do
+                        local CHAR="${REST:$i:1}"
+                        if [ "$CHAR" = "{" ]; then
+                            if [ $BRACE_COUNT -eq 0 ]; then
+                                JSON_START=$i
+                            fi
+                            ((BRACE_COUNT++)) || true
+                        elif [ "$CHAR" = "}" ]; then
+                            ((BRACE_COUNT--)) || true
+                            if [ $BRACE_COUNT -eq 0 ]; then
+                                JSON_END=$i
+                                break
+                            fi
+                        fi
+                    done
+                    
+                    if [ $JSON_END -ge 0 ]; then
+                        # Extract the full config (prefix + JSON)
+                        local JSON_PART="${REST:$JSON_START:$((JSON_END - JSON_START + 1))}"
+                        CONFIGS_ARRAY+=("$PREFIX$JSON_PART")
+                        
+                        # Remove processed part from TEMP_CONFIGS (prefix + JSON + possible comma)
+                        # Calculate the total length of the processed part in TEMP_CONFIGS
+                        local PROCESSED_LEN=$((${#PREFIX} + JSON_START + ${#JSON_PART}))
+                        TEMP_CONFIGS="${TEMP_CONFIGS:$PROCESSED_LEN}"
+                        # Remove leading comma if present
+                        TEMP_CONFIGS="${TEMP_CONFIGS#,}"
+                    else
+                        # Malformed JSON, skip
+                        break
+                    fi
+                else
+                    # No more patterns found
+                    break
+                fi
+            done
+            
+            local PARSING_ERRORS=0
+            for config in "${CONFIGS_ARRAY[@]}"; do
+                if [[ "$config" =~ ^rbac:(.+)$ ]]; then
+                    local RBAC_DATA="${BASH_REMATCH[1]}"
+                    # Validate JSON syntax
+                    if ! echo "$RBAC_DATA" | jq . > /dev/null 2>&1; then
+                        warning "Invalid JSON in RBAC config: $RBAC_DATA"
+                        ((PARSING_ERRORS++))
+                        continue
+                    fi
+                    # Extract userid from rbac_data and use as key
+                    local USERID=$(echo "$RBAC_DATA" | jq -r '.userid // empty' 2>/dev/null)
+                    if [ -z "$USERID" ] || [ "$USERID" = "null" ]; then
+                        warning "Missing userid in RBAC config"
+                        ((PARSING_ERRORS++))
+                        continue
+                    fi
+                    # Convert privileges from comma-separated string to JSON array
+                    local PRIVILEGES_STR=$(echo "$RBAC_DATA" | jq -r '.privileges // ""' 2>/dev/null)
+                    if [ -n "$PRIVILEGES_STR" ] && [ "$PRIVILEGES_STR" != "null" ]; then
+                        # Convert comma-separated string to JSON array
+                        local PRIVILEGES_ARRAY=$(echo "$PRIVILEGES_STR" | jq -R 'split(",") | map(select(length > 0))' 2>/dev/null)
+                        # Update RBAC_DATA with privileges as array
+                        RBAC_DATA=$(echo "$RBAC_DATA" | jq --argjson arr "$PRIVILEGES_ARRAY" '.privileges = $arr' 2>/dev/null)
+                    fi
+                    local NEW_JSON=$(echo "$SECURITY_JSON_LOCAL" | jq ".rbac.\"$USERID\" = $RBAC_DATA" 2>/dev/null)
+                    if [ $? -eq 0 ] && [ -n "$NEW_JSON" ]; then
+                        SECURITY_JSON_LOCAL="$NEW_JSON"
+                        log "Added RBAC config for user: $USERID"
+                    else
+                        warning "Failed to add RBAC config for user: $USERID"
+                        PARSING_ERRORS=$((PARSING_ERRORS + 1))
+                    fi
+                elif [[ "$config" =~ ^api_token:(.+)$ ]]; then
+                    local TOKEN_DATA="${BASH_REMATCH[1]}"
+                    # Validate JSON syntax
+                    if ! echo "$TOKEN_DATA" | jq . > /dev/null 2>&1; then
+                        warning "Invalid JSON in API token config: $TOKEN_DATA"
+                        ((PARSING_ERRORS++))
+                        continue
+                    fi
+                    # Extract tokenid from token_data and use as key
+                    local TOKENID=$(echo "$TOKEN_DATA" | jq -r '.tokenid // empty' 2>/dev/null)
+                    if [ -z "$TOKENID" ] || [ "$TOKENID" = "null" ]; then
+                        warning "Missing tokenid in API token config"
+                        ((PARSING_ERRORS++))
+                        continue
+                    fi
+                    local NEW_JSON=$(echo "$SECURITY_JSON_LOCAL" | jq ".api_tokens.\"$TOKENID\" = $TOKEN_DATA" 2>/dev/null)
+                    if [ $? -eq 0 ] && [ -n "$NEW_JSON" ]; then
+                        SECURITY_JSON_LOCAL="$NEW_JSON"
+                        log "Added API token config: $TOKENID"
+                    else
+                        warning "Failed to add API token config: $TOKENID"
+                        PARSING_ERRORS=$((PARSING_ERRORS + 1))
+                    fi
+                else
+                    warning "Unknown security config format: ${config:0:50}..."
+                    PARSING_ERRORS=$((PARSING_ERRORS + 1))
+                fi
+            done
+            
+            if [ $PARSING_ERRORS -gt 0 ]; then
+                warning "Security config parsing had $PARSING_ERRORS error(s), but continuing with valid configs"
+            fi
+            
+            # Validate final JSON
+            if echo "$SECURITY_JSON_LOCAL" | jq -e . >/dev/null 2>&1; then
+                TFVARS_JSON="$TFVARS_JSON\"security_config\":$SECURITY_JSON_LOCAL,"
+                log "Parsed and added security_config to tfvars"
+            else
+                error_exit "Failed to build valid security_config JSON in build_tfvars_file()"
+            fi
+        fi
     else
         TFVARS_JSON="$TFVARS_JSON\"security_config\":{},"
     fi
@@ -3163,7 +3281,8 @@ build_tfvars_file() {
             exit 0
         else
             error_exit "Deploy All selected but no resources found in tfvars ($TFVARS_FILE)." \
-                "  VMs: $total_vms, LXCs: $total_lxcs, Storages: $total_storages, Backup jobs: $total_backup_jobs, Snapshots: $total_snapshots"
+                "  VMs: $total_vms, LXCs: $total_lxcs, Storages: $total_storages, Backup jobs: $total_backup_jobs, Snapshots: $total_snapshots" \
+                "  Networking: $has_networking, Security: $has_security, Cluster: $has_cluster"
         fi
     fi
     

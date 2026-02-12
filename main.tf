@@ -36,12 +36,6 @@ module "vm" {
   pm_ssh_host             = var.pm_ssh_host
   pm_ssh_user             = var.pm_ssh_user
   pm_ssh_private_key_path = var.pm_ssh_private_key_path
-  force_run               = var.vm_force_run
-
-  depends_on = [
-    module.cluster,
-    module.storage
-  ]
 }
 
 # LXC modules
@@ -50,24 +44,18 @@ module "lxc" {
 
   source = "./modules/lxc"
 
-  node       = each.value.node
-  vmid       = each.value.vmid
-  cores      = each.value.cores
-  memory     = each.value.memory
-  rootfs     = each.value.rootfs
-  storage    = each.value.storage
+  node      = each.value.node
+  vmid      = each.value.vmid
+  cores     = each.value.cores
+  memory    = each.value.memory
+  rootfs    = each.value.rootfs
+  storage   = each.value.storage
   ostemplate = try(each.value.ostemplate, "local:vztmpl/debian-12-standard_12.12-1_amd64.tar.zst")
-  vlan       = try(each.value.vlan, null)
-  enabled    = each.value.enabled
+  enabled   = each.value.enabled
 
   pm_ssh_host             = var.pm_ssh_host
   pm_ssh_user             = var.pm_ssh_user
   pm_ssh_private_key_path = var.pm_ssh_private_key_path
-
-  depends_on = [
-    module.cluster,
-    module.storage
-  ]
 }
 
 # Storage module
@@ -91,9 +79,6 @@ module "networking" {
   vlans          = try(var.networking_config.vlans, {})
   firewall_rules = try(var.networking_config.firewall_rules, {})
   bonds          = try(var.networking_config.bonds, {})
-  sdns           = try(var.networking_config.sdns, {})
-  nats           = try(var.networking_config.nats, {})
-  mtus           = try(var.networking_config.mtus, {})
 
   pm_ssh_host             = var.pm_ssh_host
   pm_ssh_user             = var.pm_ssh_user
@@ -148,27 +133,4 @@ module "snapshot" {
   pm_ssh_host             = var.pm_ssh_host
   pm_ssh_user             = var.pm_ssh_user
   pm_ssh_private_key_path = var.pm_ssh_private_key_path
-}
-
-# Autoscaling module
-module "autoscaling" {
-  count = try(var.autoscaling_config.group, "") != "" ? 1 : 0
-
-  source = "./modules/autoscaling"
-
-  group      = try(var.autoscaling_config.group, "")
-  min        = try(var.autoscaling_config.min, 2)
-  max        = try(var.autoscaling_config.max, 10)
-  scale_up   = try(var.autoscaling_config.scale_up, 80)
-  scale_down = try(var.autoscaling_config.scale_down, 30)
-  enabled    = true
-
-  pm_ssh_host             = var.pm_ssh_host
-  pm_ssh_user             = var.pm_ssh_user
-  pm_ssh_private_key_path = var.pm_ssh_private_key_path
-  resource_type           = "vm"  # Default to VM, can be made configurable
-
-  depends_on = [
-    module.vm
-  ]
 }

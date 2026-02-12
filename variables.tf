@@ -130,8 +130,26 @@ variable "networking_config" {
 # Security configuration
 variable "security_config" {
   description = "Security configuration"
-  type        = map(any)
-  default     = {}
+  type = object({
+    rbac        = optional(map(object({
+      userid     = string
+      role       = string
+      privileges = list(string)
+    })), {})
+    api_tokens  = optional(map(object({
+      userid  = string
+      tokenid = string
+      expire  = number
+    })), {})
+    ssh_hardening   = optional(bool, false)
+    firewall_policy = optional(bool, false)
+  })
+  default = {
+    rbac        = {}
+    api_tokens  = {}
+    ssh_hardening   = false
+    firewall_policy = false
+  }
 }
 
 # Backup Job configuration - Interactive input
